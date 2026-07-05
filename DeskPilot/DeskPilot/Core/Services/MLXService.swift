@@ -5,47 +5,22 @@
 
 import Foundation
 
-// MARK: - Request types (what we send to the server)
-
-struct ChatMessage: Codable {
-    let role: String
-    let content: String
-}
-
-struct ChatRequest: Codable {
-    let model: String
-    let messages: [ChatMessage]
-}
-
-// MARK: - Response types (what the server sends back)
-
-struct ChatResponse: Codable {
-    let choices: [ChatChoice]
-}
-
-struct ChatChoice: Codable {
-    let message: ChatResponseMessage
-}
-
-struct ChatResponseMessage: Codable {
-    let content: String
-}
-
-// MARK: - MLX Service
+// MLX Service
 
 struct MLXService {
-    private let baseURL = "http://127.0.0.1:8080/v1/chat/completions"
-
     func sendMessage(_ userMessage: String) async throws -> String {
         // 1. Build the URL
-        guard let url = URL(string: baseURL) else {
+        guard let url = URL(string: Constants.MLX.baseURL) else {
             throw MLXError.invalidURL
         }
 
         // 2. Build the request body
         let chatRequest = ChatRequest(
-            model: "default_model",
-            messages: [ChatMessage(role: "user", content: userMessage)]
+            model: Constants.MLX.modelName,
+            messages: [
+                ChatMessage(role: "system", content: Prompts.system),
+                ChatMessage(role: "user", content: userMessage)
+            ]
         )
 
         // 3. Create the HTTP request
@@ -69,7 +44,7 @@ struct MLXService {
     }
 }
 
-// MARK: - Error types
+// Error types
 
 enum MLXError: Error, LocalizedError {
     case invalidURL
