@@ -58,7 +58,7 @@ struct AppShellView: View {
             case .tasks:
                 PlaceholderScreen(title: "Tasks", subtitle: "Track reminders and action items.")
             case .notes:
-                PlaceholderScreen(title: "Notes", subtitle: "Quick meeting notes and searchable notepad.")
+                NotesView()
             case .settings:
                 PlaceholderScreen(title: "Settings", subtitle: "Configure permissions and assistant behavior.")
             case .weather:

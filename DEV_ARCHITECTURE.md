@@ -30,11 +30,15 @@ DeskPilot/
 │   ├── AppShellView.swift              # Main shell: NavigationSplitView + sidebar
 │   ├── Assistant/
 │   │   └── AssistantView.swift         # Chat UI with bubbles, input bar, tool trace
-│   └── Calendar/
-│       └── CalendarTool.swift          # EventKit-based calendar tool
+│   ├── Calendar/
+│   │   └── CalendarTool.swift          # EventKit-based calendar tool
+│   ├── Files/
+│   │   └── FilesTool.swift             # Spotlight-based file search tool
+│   └── Tasks/
+│       └── RemindersTool.swift         # EventKit-based reminders tool (read-only)
 │
 ├── Assets.xcassets
-└── DeskPilot.entitlements              # Sandbox permissions (network, calendar)
+└── DeskPilot.entitlements              # Sandbox permissions (network, calendar, reminders)
 ```
 
 ## App Entry Flow
@@ -94,7 +98,8 @@ HTTP client that talks to the local MLX-LM server at `localhost:8080`.
 Orchestrates the tool calling loop. Stateless struct — the view owns the state, the coordinator produces values.
 
 - Takes a `ToolRegistry` and `MLXService` at init.
-- `handleMessage(_:) async -> AssistantResponse` — Runs the full flow: send to model → execute tool if needed → send result back → return final response.
+- `handleMessage(_:conversationHistory:) async -> AssistantResponse` — Runs the full flow: include conversation history → send to model → execute tool if needed → send result back → return final response.
+- Includes the last `Constants.MLX.conversationMemory` messages for context.
 - Returns `AssistantResponse` with `text` and optional `toolTrace`.
 - Handles errors: if MLX is down, returns an offline message.
 
@@ -145,12 +150,15 @@ Codable types matching the OpenAI chat completions API:
 ### Constants (Core/Constants.swift)
 
 ```swift
-Constants.MLX.baseURL    // "http://127.0.0.1:8080/v1/chat/completions"
-Constants.MLX.modelName  // "default_model"
-Constants.MLX.maxTokens  // 2048
+Constants.MLX.baseURL              // "http://127.0.0.1:8080/v1/chat/completions"
+Constants.MLX.modelName            // "default_model"
+Constants.MLX.maxTokens            // 2048
+Constants.MLX.conversationMemory   // 9 (number of past messages to include)
 ```
 
 `maxTokens` is set to 2048 because the model uses internal reasoning tokens before producing output. The default (512) was too low and caused the model to run out of tokens before it could output tool calls.
+
+`conversationMemory` controls how many recent messages (user + assistant) are included in each request so the model can answer follow-up questions.
 
 ## Chat UI (Features/Assistant/AssistantView.swift)
 
@@ -184,13 +192,17 @@ Uses Apple's `os.Logger` framework. Filter console output by subsystem `com.dipa
 | `MLXService` | Outgoing request JSON, raw server response |
 | `AssistantCoordinator` | Tool count sent, model response summary, tool call name + arguments, tool result, final response, errors |
 | `CalendarTool` | Raw arguments received, parsed date range, event count |
+| `RemindersTool` | Raw arguments received, status filter, reminder count |
+| `FilesTool` | Query string, search path, result count |
 
 ## Sandbox Entitlements
 
 The app runs in App Sandbox with these permissions:
 
 - **Outgoing Connections (Client)** — Required for HTTP calls to localhost:8080
-- **Calendars** — Required for EventKit access to read calendar events
+- **Calendars** — Required for EventKit access to read calendar events and reminders
+
+The Calendars sandbox entitlement covers both Calendar and Reminders since both use EventKit. A `Privacy - Reminders Usage Description` should be set in the Info tab for the permission dialog.
 
 These are configured in Signing & Capabilities in Xcode and stored in `DeskPilot.entitlements`.
 
@@ -203,7 +215,9 @@ These are configured in Signing & Capabilities in Xcode and stored in `DeskPilot
    private let coordinator = AssistantCoordinator(
        registry: ToolRegistry(tools: [
            CalendarTool(),
-           WeatherTool()  // add here
+           FilesTool(),
+           RemindersTool(),
+           NewTool()  // add here
        ]),
        mlxService: MLXService()
    )
