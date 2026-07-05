@@ -4,47 +4,70 @@
 //
 
 import Foundation
+import os
 
-// MLX Service
+private let logger = Logger(subsystem: "com.dipanbag.DeskPilot", category: "MLXService")
+
+// MARK: - MLX Service
 
 struct MLXService {
-    func sendMessage(_ userMessage: String) async throws -> String {
-        // 1. Build the URL
+
+    /// Send a conversation (array of messages) to the model, optionally with tool definitions.
+    /// Returns the raw ChatResponseMessage so the caller can check for tool_calls.
+    func send(messages: [ChatMessage], tools: [ToolDefinition]? = nil) async throws -> ChatResponseMessage {
         guard let url = URL(string: Constants.MLX.baseURL) else {
             throw MLXError.invalidURL
         }
 
-        // 2. Build the request body
         let chatRequest = ChatRequest(
             model: Constants.MLX.modelName,
-            messages: [
-                ChatMessage(role: "system", content: Prompts.system),
-                ChatMessage(role: "user", content: userMessage)
-            ]
+            messages: messages,
+            tools: tools,
+            maxTokens: Constants.MLX.maxTokens
         )
 
-        // 3. Create the HTTP request
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(chatRequest)
 
-        // 4. Send the request and get the response
+        // Log the outgoing request body
+        if let requestBody = request.httpBody, let requestStr = String(data: requestBody, encoding: .utf8) {
+            logger.debug("Request JSON: \(requestStr)")
+        }
+
         let (data, _) = try await URLSession.shared.data(for: request)
 
-        // 5. Decode the JSON response
+        // Log the raw response from the server
+        if let rawResponse = String(data: data, encoding: .utf8) {
+            logger.debug("Raw response: \(rawResponse)")
+        }
+
         let chatResponse = try JSONDecoder().decode(ChatResponse.self, from: data)
 
-        // 6. Return the assistant's reply
-        guard let reply = chatResponse.choices.first?.message.content else {
+        guard let responseMessage = chatResponse.choices.first?.message else {
             throw MLXError.noResponse
         }
 
-        return reply
+        return responseMessage
+    }
+
+    /// Simple convenience method for sending a single user message (no tools).
+    func sendMessage(_ userMessage: String) async throws -> String {
+        let messages = [
+            ChatMessage(role: "system", content: Prompts.system),
+            ChatMessage(role: "user", content: userMessage)
+        ]
+
+        let response = try await send(messages: messages)
+        guard let content = response.content else {
+            throw MLXError.noResponse
+        }
+        return content
     }
 }
 
-// Error types
+// MARK: - Errors
 
 enum MLXError: Error, LocalizedError {
     case invalidURL

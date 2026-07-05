@@ -2,98 +2,139 @@
 //  AssistantView.swift
 //  DeskPilot
 //
-//  Created by Dipan Bag on 7/5/26.
+//  Created by Dipan Bag.
 //
 
 import SwiftUI
 
 struct AssistantView: View {
     @State private var userMessage: String = ""
-    @State private var assistantResponse: String = "Ask DeskPilot about meetings, files, notes, tasks, or weather."
-    @State private var toolTrace: String = "No tool used yet."
+    @State private var messages: [ChatBubbleMessage] = []
     @State private var isLoading: Bool = false
 
-    private let mlxService = MLXService()
+    private let coordinator = AssistantCoordinator(
+        registry: ToolRegistry(tools: [
+            CalendarTool()
+        ]),
+        mlxService: MLXService()
+    )
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text("Assistant")
-                .font(.largeTitle)
-                .bold()
-
-            Text("Ask DeskPilot to help with your workday.")
-                .foregroundStyle(.secondary)
-
-            HStack {
-                TextField("Ask DeskPilot...", text: $userMessage)
-                    .textFieldStyle(.roundedBorder)
-                    .accessibilityIdentifier("assistantInput")
-
-                Button("Send") {
-                    Task { await sendMessage() }
+        VStack(spacing: 0) {
+            // Chat messages area
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 12) {
+                        ForEach(messages) { message in
+                            ChatBubble(message: message)
+                        }
+                    }
+                    .padding()
                 }
-                .disabled(isLoading)
-                .accessibilityIdentifier("assistantSendButton")
+                .onChange(of: messages.count) {
+                    if let lastMessage = messages.last {
+                        proxy.scrollTo(lastMessage.id, anchor: .bottom)
+                    }
+                }
             }
 
             Divider()
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Response")
-                    .font(.headline)
+            // Input bar
+            HStack {
+                TextField("Ask DeskPilot...", text: $userMessage)
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityIdentifier("assistantInput")
+                    .onSubmit {
+                        Task { await sendMessage() }
+                    }
 
-                Text(assistantResponse)
-                    .accessibilityIdentifier("assistantResponse")
+                Button("Send") {
+                    Task { await sendMessage() }
+                }
+                .disabled(isLoading || userMessage.isEmpty)
+                .accessibilityIdentifier("assistantSendButton")
             }
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Tool Trace")
-                    .font(.headline)
-
-                Text(toolTrace)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("assistantToolTrace")
-            }
-
-            Spacer()
+            .padding()
         }
-        .padding(32)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func sendMessage() async {
         let message = userMessage
         userMessage = ""
-        isLoading = true
-        assistantResponse = "Thinking..."
-        toolTrace = "Tool used: MLX Local Model"
 
-        do {
-            assistantResponse = try await mlxService.sendMessage(message)
-        } catch {
-            // Fall back to keyword routing when server is unavailable
-            assistantResponse = mockResponse(for: message)
-            toolTrace = "Tool used: Mock Fallback (server unavailable)"
+        messages.append(ChatBubbleMessage(role: .user, content: message))
+
+        isLoading = true
+
+        let thinkingMessage = ChatBubbleMessage(role: .assistant, content: "Thinking...")
+        messages.append(thinkingMessage)
+
+        let response = await coordinator.handleMessage(message)
+
+        // Replace the "Thinking..." placeholder with the real response
+        if let index = messages.firstIndex(where: { $0.id == thinkingMessage.id }) {
+            messages[index] = ChatBubbleMessage(
+                id: thinkingMessage.id,
+                role: .assistant,
+                content: response.text,
+                toolTrace: response.toolTrace
+            )
         }
 
         isLoading = false
     }
+}
 
-    private func mockResponse(for input: String) -> String {
-        let message = input.lowercased()
+// MARK: - Chat Bubble Message
 
-        if message.contains("meeting") || message.contains("calendar") {
-            return "You have 2 meetings today: Apple prep at 4 PM and Project Sync at 6 PM."
-        } else if message.contains("file") || message.contains("resume") {
-            return "I found matching files: Resume.pdf and Apple_Interview_Notes.md."
-        } else if message.contains("task") {
-            return "You have 3 pending tasks today."
-        } else if message.contains("note") {
-            return "Your latest note is: XCUITest prep notes."
-        } else if message.contains("weather") {
-            return "Today's mock weather is 72°F and clear."
-        } else {
-            return "I can help with meetings, files, notes, tasks, and weather."
+struct ChatBubbleMessage: Identifiable {
+    let id: UUID
+    let role: Role
+    let content: String
+    let toolTrace: String?
+
+    enum Role {
+        case user
+        case assistant
+    }
+
+    init(id: UUID = UUID(), role: Role, content: String, toolTrace: String? = nil) {
+        self.id = id
+        self.role = role
+        self.content = content
+        self.toolTrace = toolTrace
+    }
+}
+
+// MARK: - Chat Bubble View
+
+struct ChatBubble: View {
+    let message: ChatBubbleMessage
+
+    var body: some View {
+        HStack {
+            if message.role == .user { Spacer() }
+
+            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 4) {
+                Text(message.content)
+                    .padding(10)
+                    .background(message.role == .user ? Color.blue : Color.gray.opacity(0.2))
+                    .foregroundStyle(message.role == .user ? .white : .primary)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .accessibilityIdentifier(
+                        message.role == .user ? "userBubble" : "assistantResponse"
+                    )
+
+                if let trace = message.toolTrace {
+                    Text("Tool: \(trace)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("assistantToolTrace")
+                }
+            }
+
+            if message.role == .assistant { Spacer() }
         }
     }
 }
