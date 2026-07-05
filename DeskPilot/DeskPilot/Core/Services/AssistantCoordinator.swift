@@ -26,12 +26,22 @@ struct AssistantCoordinator {
         self.mlxService = mlxService
     }
 
-    func handleMessage(_ userMessage: String) async -> AssistantResponse {
-        // Build the initial conversation
+    func handleMessage(_ userMessage: String, conversationHistory: [ChatBubbleMessage]) async -> AssistantResponse {
+        // Build the conversation with memory
         var messages: [ChatMessage] = [
-            ChatMessage(role: "system", content: Prompts.system),
-            ChatMessage(role: "user", content: userMessage)
+            ChatMessage(role: "system", content: Prompts.system)
         ]
+
+        // Include the last N messages from conversation history
+        let memoryCount = Constants.MLX.conversationMemory
+        let recentHistory = conversationHistory.suffix(memoryCount)
+        for pastMessage in recentHistory {
+            let role = pastMessage.role == .user ? "user" : "assistant"
+            messages.append(ChatMessage(role: role, content: pastMessage.content))
+        }
+
+        // Add the current user message
+        messages.append(ChatMessage(role: "user", content: userMessage))
 
         let toolDefinitions = registry.toolDefinitions()
         var toolTrace: String? = nil
@@ -77,14 +87,14 @@ struct AssistantCoordinator {
 
                 // Send back to model so it can write a natural response
                 let finalResponse = try await mlxService.send(messages: messages)
-                let text = finalResponse.content ?? result.output
+                let text = (finalResponse.content ?? result.output).trimmingCharacters(in: .whitespacesAndNewlines)
                 logger.debug("Final response: \(text)")
 
                 return AssistantResponse(text: text, toolTrace: toolTrace)
             }
 
             // No tool call — just a regular reply
-            let text = response.content ?? "I'm not sure how to help with that."
+            let text = (response.content ?? "I'm not sure how to help with that.").trimmingCharacters(in: .whitespacesAndNewlines)
             logger.debug("No tool call, direct reply")
             return AssistantResponse(text: text, toolTrace: nil)
 

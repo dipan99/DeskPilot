@@ -14,7 +14,8 @@ struct AssistantView: View {
 
     private let coordinator = AssistantCoordinator(
         registry: ToolRegistry(tools: [
-            CalendarTool()
+            CalendarTool(),
+            FilesTool()
         ]),
         mlxService: MLXService()
     )
@@ -63,6 +64,9 @@ struct AssistantView: View {
         let message = userMessage
         userMessage = ""
 
+        // Capture history before adding current exchange
+        let history = messages
+
         messages.append(ChatBubbleMessage(role: .user, content: message))
 
         isLoading = true
@@ -70,7 +74,7 @@ struct AssistantView: View {
         let thinkingMessage = ChatBubbleMessage(role: .assistant, content: "Thinking...")
         messages.append(thinkingMessage)
 
-        let response = await coordinator.handleMessage(message)
+        let response = await coordinator.handleMessage(message, conversationHistory: history)
 
         // Replace the "Thinking..." placeholder with the real response
         if let index = messages.firstIndex(where: { $0.id == thinkingMessage.id }) {
