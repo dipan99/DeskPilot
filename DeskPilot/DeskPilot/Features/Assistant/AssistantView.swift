@@ -15,7 +15,8 @@ struct AssistantView: View {
     private let coordinator = AssistantCoordinator(
         registry: ToolRegistry(tools: [
             CalendarTool(),
-            FilesTool()
+            FilesTool(),
+            RemindersTool()
         ]),
         mlxService: MLXService()
     )
