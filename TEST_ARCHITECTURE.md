@@ -329,13 +329,9 @@ Leave `RUN_REAL_AI_EVALS` disabled for normal test runs.
 
 ## Running Tests From Command Line
 
-All commands below assume you are in the repository root:
+All commands below assume you are in the repository root that contains `DeskPilot.xcodeproj`.
 
-```text
-/Users/dipanbag/my files/Developer/DeskPilotProject/DeskPilot
-```
-
-Because the path contains spaces, quote paths in commands.
+If your local checkout path contains spaces, keep quoted paths in any commands that include explicit paths.
 
 ### Build
 
