@@ -12,15 +12,35 @@ struct AssistantView: View {
     @Binding var messages: [ChatBubbleMessage]
     @Binding var isLoading: Bool
 
-    private let coordinator = AssistantCoordinator(
-        registry: ToolRegistry(tools: [
-            CalendarTool(),
-            FilesTool(),
-            RemindersTool(),
-            NotesTool()
-        ]),
-        mlxService: MLXService()
-    )
+    private let coordinator: AssistantCoordinator
+
+    init(
+        userMessage: Binding<String>,
+        messages: Binding<[ChatBubbleMessage]>,
+        isLoading: Binding<Bool>,
+        coordinator: AssistantCoordinator = AssistantView.makeCoordinator()
+    ) {
+        _userMessage = userMessage
+        _messages = messages
+        _isLoading = isLoading
+        self.coordinator = coordinator
+    }
+
+    private static func makeCoordinator() -> AssistantCoordinator {
+        let chatService: any ChatServing = CommandLine.arguments.contains("USE_MOCK_ASSISTANT")
+            ? MockAssistantChatService()
+            : MLXService()
+
+        return AssistantCoordinator(
+            registry: ToolRegistry(tools: [
+                CalendarTool(),
+                FilesTool(),
+                RemindersTool(),
+                NotesTool()
+            ]),
+            chatService: chatService
+        )
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -128,6 +148,7 @@ struct ChatBubble: View {
                     .background(message.role == .user ? Color.blue : Color.gray.opacity(0.2))
                     .foregroundStyle(message.role == .user ? .white : .primary)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .accessibilityLabel(message.content)
                     .accessibilityIdentifier(
                         message.role == .user ? "userBubble" : "assistantResponse"
                     )

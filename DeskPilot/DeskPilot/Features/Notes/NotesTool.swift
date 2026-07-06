@@ -27,7 +27,11 @@ struct NotesTool: Tool {
         "required": ["query"]
     ]
 
-    private let store = NotesStore()
+    private let store: NotesStore
+
+    init(store: NotesStore = NotesStore()) {
+        self.store = store
+    }
 
     func execute(arguments: String) async -> ToolResult {
         let parsedArguments = parseArguments(arguments)

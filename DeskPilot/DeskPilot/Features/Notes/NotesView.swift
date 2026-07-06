@@ -299,13 +299,17 @@ struct NotesStore {
     private let fileManager: FileManager
     private let notesURL: URL
 
-    init(fileManager: FileManager = .default) {
+    init(fileManager: FileManager = .default, notesURL: URL? = nil) {
         self.fileManager = fileManager
 
-        let supportDirectory = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        notesURL = supportDirectory
-            .appendingPathComponent("DeskPilot", isDirectory: true)
-            .appendingPathComponent("notes.json")
+        if let notesURL {
+            self.notesURL = notesURL
+        } else {
+            let supportDirectory = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            self.notesURL = supportDirectory
+                .appendingPathComponent("DeskPilot", isDirectory: true)
+                .appendingPathComponent("notes.json")
+        }
     }
 
     func loadNotes() async throws -> [DeskNote] {

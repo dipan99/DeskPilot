@@ -10,7 +10,7 @@ private let logger = Logger(subsystem: "com.dipanbag.DeskPilot", category: "MLXS
 
 // MARK: - MLX Service
 
-struct MLXService {
+struct MLXService: ChatServing {
 
     /// Send a conversation (array of messages) to the model, optionally with tool definitions.
     /// Returns the raw ChatResponseMessage so the caller can check for tool_calls.

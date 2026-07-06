@@ -19,11 +19,15 @@ struct AssistantResponse {
 
 struct AssistantCoordinator {
     private let registry: ToolRegistry
-    private let mlxService: MLXService
+    private let chatService: any ChatServing
 
     init(registry: ToolRegistry, mlxService: MLXService) {
+        self.init(registry: registry, chatService: mlxService)
+    }
+
+    init(registry: ToolRegistry, chatService: any ChatServing) {
         self.registry = registry
-        self.mlxService = mlxService
+        self.chatService = chatService
     }
 
     func handleMessage(_ userMessage: String, conversationHistory: [ChatBubbleMessage]) async -> AssistantResponse {
@@ -50,7 +54,7 @@ struct AssistantCoordinator {
 
         do {
             // Send to model with tool definitions
-            let response = try await mlxService.send(
+            let response = try await chatService.send(
                 messages: messages,
                 tools: toolDefinitions.isEmpty ? nil : toolDefinitions
             )
@@ -86,7 +90,7 @@ struct AssistantCoordinator {
                 ))
 
                 // Send back to model so it can write a natural response
-                let finalResponse = try await mlxService.send(messages: messages)
+                let finalResponse = try await chatService.send(messages: messages)
                 let text = (finalResponse.content ?? result.output).trimmingCharacters(in: .whitespacesAndNewlines)
                 logger.debug("Final response: \(text)")
 
