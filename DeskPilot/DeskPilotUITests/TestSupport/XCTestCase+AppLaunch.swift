@@ -26,4 +26,12 @@ extension XCTestCase {
 
         return app
     }
+
+    @MainActor
+    func attachScreenshot(named name: String, app: XCUIApplication, lifetime: XCTAttachment.Lifetime = .keepAlways) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = lifetime
+        add(attachment)
+    }
 }
