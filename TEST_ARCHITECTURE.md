@@ -97,7 +97,7 @@ Why:
 - lets tests opt into app launch arguments like `USE_MOCK_ASSISTANT`
 - centralizes screenshot attachment behavior
 
-Note: `RESET_APP_STATE` is supported by the helper as a launch argument, but app-side reset handling should be implemented before relying on it for isolation.
+`resetState: true` adds `RESET_APP_STATE`, which lets the app clear UI-test data before launch. Use this for UI tests that create persisted data, especially Notes workflows.
 
 ### `XCUIApplication+Sidebar.swift`
 
@@ -220,6 +220,22 @@ Why it is opt-in:
 - should not block regular local or CI runs by default
 
 For factual retrieval, prefer exact fact checks such as phone numbers, dates, emails, or names. Do not use AI-as-judge for normal automated pass/fail tests.
+
+## Test Data And State Isolation
+
+Normal UI tests launch with `UI_TESTING`. In that mode, Notes storage uses a UI-test-specific notes file instead of the regular app notes file.
+
+Tests that create persisted UI data should launch with:
+
+```swift
+launchDeskPilot(resetState: true)
+```
+
+This adds `RESET_APP_STATE`, and the app deletes the UI-test notes store before the test starts. This keeps tests independent from previous runs and avoids polluting real user data.
+
+Unit tests should avoid app-global persistence entirely. Prefer temporary files or injected stores, as `NotesToolTests` does with a temporary notes JSON file.
+
+Real AI evaluations are optional and skipped by default. They should seed their own facts with unique titles and assert exact factual values rather than relying on existing user data.
 
 ## Mocking Architecture
 
@@ -455,16 +471,47 @@ Avoid default pass/fail tests that depend on:
 
 Those belong in opt-in evaluation tests, not normal deterministic tests.
 
-## Recommended Next Steps
+## Extending The Test Suite
 
-- Implement app-side `RESET_APP_STATE` handling so UI tests can start with clean local notes.
-- Split generated placeholder tests out or remove them once real coverage replaces them.
-- Consider a separate Xcode test plan for real AI evals:
+When adding a new feature, add tests at the lowest useful layer first.
 
-  ```text
-  DeskPilot.xctestplan
-  DeskPilotRealAIEvals.xctestplan
-  ```
+### New Local Feature
 
-- Add more deterministic tool tests as new tools are introduced.
-- Add one real-AI eval per important factual retrieval workflow, not one per UI detail.
+For a feature that does not involve the assistant, such as a new screen or editor:
+
+1. Add unit tests for pure formatting, parsing, persistence, or data-model logic in `DeskPilotTests`.
+2. Add UI tests for the main user workflow in `DeskPilotUITests`.
+3. Add accessibility identifiers to controls that tests need to locate.
+4. Use `XCTContext.runActivity` for major UI steps.
+5. Attach screenshots only for useful states or failure diagnosis.
+6. Use `launchDeskPilot(resetState: true)` if the workflow creates persisted UI data.
+
+### New Tool
+
+For a new assistant tool:
+
+1. Add deterministic tool tests in `DeskPilotTests`.
+2. Seed the tool with controlled data using temporary files, injected stores, or fake dependencies.
+3. Assert exact tool output for important facts and error cases.
+4. Add coordinator tests if the tool introduces a new tool-calling behavior.
+5. Add mocked assistant UI tests only if the user-visible Assistant behavior changes.
+
+### New Assistant Flow
+
+For a new assistant behavior:
+
+1. Keep the core flow covered by `AssistantCoordinatorTests` using a fake `ChatServing` implementation.
+2. Use `MockAssistantChatService` for UI-level assistant tests.
+3. Avoid requiring MLX for normal tests.
+4. Add a real AI evaluation only for important factual retrieval behavior that cannot be meaningfully covered with mocks.
+
+### New Real AI Evaluation
+
+For an opt-in real model eval:
+
+1. Put it in `RealAIEvaluationUITests`.
+2. Keep it skipped unless `RUN_REAL_AI_EVALS=1`.
+3. Seed exact, unique test facts during the test.
+4. Assert exact values such as phone numbers, dates, emails, names, or IDs.
+5. Do not assert exact prose from the model.
+6. Do not use real AI evals as required CI coverage.

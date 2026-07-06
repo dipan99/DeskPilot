@@ -13,7 +13,7 @@ final class NotesUITests: XCTestCase {
     @MainActor
     func testNotesSectionOpens() throws {
         let app = XCTContext.runActivity(named: "Launch DeskPilot") { _ in
-            launchDeskPilot()
+            launchDeskPilot(resetState: true)
         }
 
         XCTContext.runActivity(named: "Open Notes section") { _ in
@@ -30,7 +30,7 @@ final class NotesUITests: XCTestCase {
     @MainActor
     func testCanCreateNoteWithTitleAndContent() throws {
         let app = XCTContext.runActivity(named: "Launch DeskPilot") { _ in
-            launchDeskPilot()
+            launchDeskPilot(resetState: true)
         }
         let uniqueSuffix = UUID().uuidString.prefix(8)
         let title = "UI Test Note \(uniqueSuffix)"
@@ -53,7 +53,7 @@ final class NotesUITests: XCTestCase {
     @MainActor
     func testCanCreateNoteWithoutTitle() throws {
         let app = XCTContext.runActivity(named: "Launch DeskPilot") { _ in
-            launchDeskPilot()
+            launchDeskPilot(resetState: true)
         }
         let uniqueSuffix = UUID().uuidString.prefix(8)
         let content = "Derived title note \(uniqueSuffix) first line"
@@ -75,7 +75,7 @@ final class NotesUITests: XCTestCase {
     @MainActor
     func testCanOpenAndEditExistingNote() throws {
         let app = XCTContext.runActivity(named: "Launch DeskPilot") { _ in
-            launchDeskPilot()
+            launchDeskPilot(resetState: true)
         }
         let uniqueSuffix = UUID().uuidString.prefix(8)
         let title = "UI Test Note \(uniqueSuffix) To Be Edited"

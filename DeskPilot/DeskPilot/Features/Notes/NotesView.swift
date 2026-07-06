@@ -301,15 +301,25 @@ struct NotesStore {
 
     init(fileManager: FileManager = .default, notesURL: URL? = nil) {
         self.fileManager = fileManager
+        self.notesURL = notesURL ?? Self.defaultNotesURL(fileManager: fileManager)
+    }
 
-        if let notesURL {
-            self.notesURL = notesURL
-        } else {
-            let supportDirectory = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            self.notesURL = supportDirectory
-                .appendingPathComponent("DeskPilot", isDirectory: true)
-                .appendingPathComponent("notes.json")
+    static func resetTestStore(fileManager: FileManager = .default) throws {
+        let notesURL = defaultNotesURL(fileManager: fileManager)
+        guard fileManager.fileExists(atPath: notesURL.path) else {
+            return
         }
+
+        try fileManager.removeItem(at: notesURL)
+    }
+
+    private static func defaultNotesURL(fileManager: FileManager) -> URL {
+        let supportDirectory = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let directoryName = CommandLine.arguments.contains("UI_TESTING") ? "DeskPilotUITests" : "DeskPilot"
+
+        return supportDirectory
+            .appendingPathComponent(directoryName, isDirectory: true)
+            .appendingPathComponent("notes.json")
     }
 
     func loadNotes() async throws -> [DeskNote] {

@@ -2,13 +2,20 @@
 //  DeskPilotApp.swift
 //  DeskPilot
 //
-//  Created by Dipan Bag on 7/5/26.
+//  Created by Dipan Bag.
 //
 
 import SwiftUI
 
 @main
 struct DeskPilotApp: App {
+    init() {
+        if CommandLine.arguments.contains("UI_TESTING"),
+           CommandLine.arguments.contains("RESET_APP_STATE") {
+            try? NotesStore.resetTestStore()
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
             AppShellView()
