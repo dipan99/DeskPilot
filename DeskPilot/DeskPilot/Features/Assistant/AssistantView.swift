@@ -8,15 +8,16 @@
 import SwiftUI
 
 struct AssistantView: View {
-    @State private var userMessage: String = ""
-    @State private var messages: [ChatBubbleMessage] = []
-    @State private var isLoading: Bool = false
+    @Binding var userMessage: String
+    @Binding var messages: [ChatBubbleMessage]
+    @Binding var isLoading: Bool
 
     private let coordinator = AssistantCoordinator(
         registry: ToolRegistry(tools: [
             CalendarTool(),
             FilesTool(),
-            RemindersTool()
+            RemindersTool(),
+            NotesTool()
         ]),
         mlxService: MLXService()
     )

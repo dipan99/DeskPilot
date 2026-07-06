@@ -37,7 +37,7 @@ final class DeskPilotUITests: XCTestCase {
         app.launchArguments = ["UI_TESTING"]
         app.launch()
 
-        app.buttons["sidebar_Assistant"].click()
+        app.staticTexts["sidebar_Assistant"].click()
 
         let input = app.textFields["assistantInput"]
         XCTAssertTrue(input.waitForExistence(timeout: 5))

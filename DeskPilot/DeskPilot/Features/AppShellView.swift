@@ -35,6 +35,9 @@ enum DeskPilotSection: String, CaseIterable, Identifiable, Hashable {
 
 struct AppShellView: View {
     @State private var selectedSection: DeskPilotSection? = .dashboard
+    @State private var assistantUserMessage = ""
+    @State private var assistantMessages: [ChatBubbleMessage] = []
+    @State private var assistantIsLoading = false
 
     var body: some View {
         NavigationSplitView {
@@ -50,7 +53,11 @@ struct AppShellView: View {
             case .dashboard:
                 PlaceholderScreen(title: "Dashboard", subtitle: "Overview of meetings, tasks, notes, and recent files.")
             case .assistant:
-                AssistantView()
+                AssistantView(
+                    userMessage: $assistantUserMessage,
+                    messages: $assistantMessages,
+                    isLoading: $assistantIsLoading
+                )
             case .files:
                 PlaceholderScreen(title: "Files", subtitle: "Search local files and open results.")
             case .calendar:
