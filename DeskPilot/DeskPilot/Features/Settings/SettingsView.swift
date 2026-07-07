@@ -101,11 +101,15 @@ struct SettingsView: View {
                         .accessibilityIdentifier("settingsModelEndpointField")
                 }
 
-                LabeledContent("Model Name") {
-                    TextField("Model name", text: $modelName)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(maxWidth: 300)
-                        .accessibilityIdentifier("settingsModelNameField")
+                LabeledContent("Model") {
+                    Picker("Model", selection: $modelName) {
+                        ForEach(SettingsModelOption.allCases) { option in
+                            Text(option.label).tag(option.id)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 300)
+                    .accessibilityIdentifier("settingsModelPicker")
                 }
 
                 Stepper(value: $maxTokens, in: 256...8192, step: 256) {
@@ -136,6 +140,19 @@ struct SettingsView: View {
                 responseStyle = AppSettings.Defaults.responseStyle
             }
             .accessibilityIdentifier("settingsResetButton")
+        }
+    }
+}
+
+private enum SettingsModelOption: String, CaseIterable, Identifiable {
+    case qwen3FourB = "default_model"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .qwen3FourB:
+            return "default_model (Qwen3-4B-4bit)"
         }
     }
 }

@@ -51,7 +51,9 @@ struct AppShellView: View {
         } detail: {
             switch selectedSection {
             case .dashboard:
-                PlaceholderScreen(title: "Dashboard", subtitle: "Overview of meetings, tasks, notes, and recent files.")
+                DashboardView { section in
+                    selectedSection = section
+                }
             case .assistant:
                 AssistantView(
                     userMessage: $assistantUserMessage,
