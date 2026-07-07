@@ -28,9 +28,11 @@ struct NotesTool: Tool {
     ]
 
     private let store: NotesStore
+    private let retriever: NotesHybridRetriever
 
-    init(store: NotesStore = NotesStore()) {
+    init(store: NotesStore = NotesStore(), configuration: NotesSearchConfiguration = .default) {
         self.store = store
+        self.retriever = NotesHybridRetriever(configuration: configuration)
     }
 
     func execute(arguments: String) async -> ToolResult {
@@ -50,7 +52,7 @@ struct NotesTool: Tool {
                 return ToolResult(toolName: displayName, output: "No notes have been saved yet.")
             }
 
-            let matches = rankedMatches(for: query, in: notes, maxResults: maxResults)
+            let matches = retriever.search(query: query, notes: notes, maxResults: maxResults)
             notesLogger.debug("Found \(matches.count) matching note(s)")
 
             guard !matches.isEmpty else {
@@ -64,10 +66,14 @@ struct NotesTool: Tool {
             let result = matches.map { match in
                 [
                     "title": match.note.title,
-                    "content": trimmedContent(match.note.content),
+                    "snippet": match.snippet,
+                    "content": match.snippet,
                     "updated_at": formatter.string(from: match.note.updatedAt),
-                    "relevance_score": String(match.score)
-                ]
+                    "matched_terms": match.matchedTerms,
+                    "lexical_score": match.lexicalScore,
+                    "semantic_score": match.semanticScore,
+                    "relevance_score": match.relevanceScore
+                ] as [String: Any]
             }
 
             if let data = try? JSONSerialization.data(withJSONObject: result),
@@ -87,11 +93,6 @@ struct NotesTool: Tool {
         let maxResults: Int
     }
 
-    private struct NoteMatch {
-        let note: DeskNote
-        let score: Int
-    }
-
     private func parseArguments(_ arguments: String) -> ParsedArguments {
         guard let data = arguments.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -103,71 +104,231 @@ struct NotesTool: Tool {
 
         return ParsedArguments(query: query, maxResults: maxResults)
     }
+}
 
-    private func rankedMatches(for query: String, in notes: [DeskNote], maxResults: Int) -> [NoteMatch] {
-        let normalizedQuery = query.normalizedForNotesSearch
-        let queryTerms = searchTerms(in: normalizedQuery)
+struct NotesSearchConfiguration {
+    let lexicalWeight: Double
+    let semanticWeight: Double
+    let minimumRelevanceScore: Double
+    let snippetCharacterLimit: Int
+
+    static let `default` = NotesSearchConfiguration(
+        lexicalWeight: 0.6,
+        semanticWeight: 0.4,
+        minimumRelevanceScore: 0.08,
+        snippetCharacterLimit: 800
+    )
+}
+
+struct NotesSearchMatch {
+    let note: DeskNote
+    let snippet: String
+    let matchedTerms: [String]
+    let lexicalScore: Double
+    let semanticScore: Double
+    let relevanceScore: Double
+}
+
+struct NotesHybridRetriever {
+    private let configuration: NotesSearchConfiguration
+    private let lexicalScorer = NotesLexicalScorer()
+    private let semanticScorer = NotesLocalSemanticScorer()
+
+    init(configuration: NotesSearchConfiguration = .default) {
+        self.configuration = configuration
+    }
+
+    func search(query: String, notes: [DeskNote], maxResults: Int) -> [NotesSearchMatch] {
+        let queryTerms = NotesSearchText.terms(from: query)
 
         return notes.compactMap { note in
-            let searchableTitle = note.title.normalizedForNotesSearch
-            let searchableContent = note.content.normalizedForNotesSearch
-            let searchableText = searchableTitle + " " + searchableContent
+            let lexicalMatch = lexicalScorer.score(query: query, title: note.title, content: note.content)
+            let semanticScore = semanticScorer.score(query: query, title: note.title, content: note.content)
+            let relevanceScore = (
+                configuration.lexicalWeight * lexicalMatch.score
+            ) + (
+                configuration.semanticWeight * semanticScore
+            )
 
-            var score = 0
-
-            if searchableText.contains(normalizedQuery) {
-                score += 20
-            }
-
-            for term in queryTerms where searchableText.contains(term) {
-                score += searchableTitle.contains(term) ? 4 : 2
-            }
-
-            guard score > 0 else {
+            guard relevanceScore >= configuration.minimumRelevanceScore else {
                 return nil
             }
 
-            return NoteMatch(note: note, score: score)
+            return NotesSearchMatch(
+                note: note,
+                snippet: NotesSnippetBuilder.snippet(
+                    from: note.content,
+                    queryTerms: queryTerms,
+                    characterLimit: configuration.snippetCharacterLimit
+                ),
+                matchedTerms: lexicalMatch.matchedTerms,
+                lexicalScore: lexicalMatch.score,
+                semanticScore: semanticScore,
+                relevanceScore: relevanceScore
+            )
         }
         .sorted { lhs, rhs in
-            if lhs.score == rhs.score {
+            if lhs.relevanceScore == rhs.relevanceScore {
                 return lhs.note.updatedAt > rhs.note.updatedAt
             }
 
-            return lhs.score > rhs.score
+            return lhs.relevanceScore > rhs.relevanceScore
         }
         .prefix(maxResults)
         .map { $0 }
     }
+}
 
-    private func searchTerms(in text: String) -> [String] {
-        let ignoredTerms: Set<String> = [
-            "a", "an", "and", "are", "as", "at", "do", "for", "from", "had", "has", "have",
-            "i", "in", "is", "it", "me", "my", "of", "on", "or", "that", "the", "to", "was",
-            "were", "what", "when", "where", "which", "who", "with"
-        ]
+struct NotesLexicalMatch {
+    let score: Double
+    let matchedTerms: [String]
+}
 
-        return text.split(separator: " ")
-            .map(String.init)
-            .filter { $0.count >= 2 && !ignoredTerms.contains($0) }
-    }
-
-    private func trimmedContent(_ content: String) -> String {
-        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count > 2_000 else {
-            return trimmed
+struct NotesLexicalScorer {
+    func score(query: String, title: String, content: String) -> NotesLexicalMatch {
+        let queryTerms = NotesSearchText.terms(from: query)
+        guard !queryTerms.isEmpty else {
+            return NotesLexicalMatch(score: 0, matchedTerms: [])
         }
 
-        return String(trimmed.prefix(2_000)) + "..."
+        let normalizedQuery = NotesSearchText.normalized(query)
+        let normalizedText = NotesSearchText.normalized(title + " " + content)
+        let titleTerms = Set(NotesSearchText.terms(from: title))
+        let contentTerms = Set(NotesSearchText.terms(from: content))
+        let allTerms = titleTerms.union(contentTerms)
+
+        var rawScore = 0.0
+        var matchedTerms: [String] = []
+
+        if normalizedText.contains(normalizedQuery) {
+            rawScore += Double(queryTerms.count) * 2.5
+        }
+
+        for term in queryTerms where allTerms.contains(term) {
+            matchedTerms.append(term)
+            rawScore += titleTerms.contains(term) ? 1.5 : 1.0
+        }
+
+        let maximumUsefulScore = Double(queryTerms.count) * 4.0
+        let normalizedScore = min(rawScore / maximumUsefulScore, 1.0)
+
+        return NotesLexicalMatch(
+            score: normalizedScore,
+            matchedTerms: Array(Set(matchedTerms)).sorted()
+        )
     }
 }
 
-private extension String {
-    var normalizedForNotesSearch: String {
-        folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+struct NotesLocalSemanticScorer {
+    func score(query: String, title: String, content: String) -> Double {
+        let queryFeatures = NotesSearchText.features(from: query)
+        let noteFeatures = NotesSearchText.features(from: title + " " + content)
+
+        guard !queryFeatures.isEmpty, !noteFeatures.isEmpty else {
+            return 0
+        }
+
+        let queryFeatureSet = Set(queryFeatures)
+        let noteFeatureSet = Set(noteFeatures)
+        let overlapCount = queryFeatureSet.intersection(noteFeatureSet).count
+        let denominator = sqrt(Double(queryFeatureSet.count) * Double(noteFeatureSet.count))
+
+        guard denominator > 0 else {
+            return 0
+        }
+
+        return min(Double(overlapCount) / denominator, 1.0)
+    }
+}
+
+enum NotesSnippetBuilder {
+    static func snippet(from content: String, queryTerms: [String], characterLimit: Int) -> String {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count > characterLimit else {
+            return trimmed
+        }
+
+        let normalizedContent = NotesSearchText.normalized(trimmed)
+        let firstMatchIndex = queryTerms
+            .compactMap { normalizedContent.range(of: $0)?.lowerBound }
+            .min()
+
+        guard let firstMatchIndex else {
+            return String(trimmed.prefix(characterLimit)).trimmingCharacters(in: .whitespacesAndNewlines) + "..."
+        }
+
+        let approximateContentIndex = String.Index(
+            utf16Offset: normalizedContent.distance(from: normalizedContent.startIndex, to: firstMatchIndex),
+            in: trimmed
+        )
+        let halfLimit = max(characterLimit / 2, 1)
+        let start = trimmed.index(
+            approximateContentIndex,
+            offsetBy: -halfLimit,
+            limitedBy: trimmed.startIndex
+        ) ?? trimmed.startIndex
+        let end = trimmed.index(
+            start,
+            offsetBy: characterLimit,
+            limitedBy: trimmed.endIndex
+        ) ?? trimmed.endIndex
+        let snippet = trimmed[start..<end].trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let prefix = start == trimmed.startIndex ? "" : "..."
+        let suffix = end == trimmed.endIndex ? "" : "..."
+        return prefix + snippet + suffix
+    }
+}
+
+enum NotesSearchText {
+    private nonisolated static let ignoredTerms: Set<String> = [
+        "a", "an", "and", "are", "as", "at", "do", "for", "from", "had", "has", "have",
+        "i", "in", "is", "it", "me", "my", "of", "on", "or", "that", "the", "to", "was",
+        "were", "what", "when", "where", "which", "who", "with"
+    ]
+
+    nonisolated static func normalized(_ text: String) -> String {
+        text
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
             .lowercased()
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { !$0.isEmpty }
             .joined(separator: " ")
+    }
+
+    nonisolated static func terms(from text: String) -> [String] {
+        normalized(text).split(separator: " ")
+            .map(String.init)
+            .filter { $0.count >= 2 && !ignoredTerms.contains($0) }
+    }
+
+    nonisolated static func features(from text: String) -> [String] {
+        let terms = terms(from: text)
+        let stems = terms.map(stem)
+        let bigrams = zip(stems, stems.dropFirst()).map { "\($0)_\($1)" }
+        let characterTrigrams = stems.flatMap { trigrams(from: $0) }
+
+        return stems + bigrams + characterTrigrams
+    }
+
+    private nonisolated static func stem(_ term: String) -> String {
+        var stemmed = term
+        for suffix in ["ing", "ed", "es", "s"] where stemmed.count > suffix.count + 2 && stemmed.hasSuffix(suffix) {
+            stemmed.removeLast(suffix.count)
+            return stemmed
+        }
+
+        return stemmed
+    }
+
+    private nonisolated static func trigrams(from term: String) -> [String] {
+        guard term.count >= 3 else {
+            return [term]
+        }
+
+        return term.indices.dropLast(2).map { index in
+            let end = term.index(index, offsetBy: 3)
+            return String(term[index..<end])
+        }
     }
 }

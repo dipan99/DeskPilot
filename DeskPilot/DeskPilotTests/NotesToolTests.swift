@@ -36,6 +36,14 @@ final class NotesToolTests: XCTestCase {
         XCTAssertTrue(result.output.contains("Eric contact"))
         XCTAssertTrue(result.output.contains("555-1234"))
         XCTAssertFalse(result.output.contains("Lunch ideas"))
+
+        let matches = try decodeMatches(from: result.output)
+        XCTAssertEqual(matches.first?["title"] as? String, "Eric contact")
+        XCTAssertNotNil(matches.first?["snippet"])
+        XCTAssertNotNil(matches.first?["lexical_score"])
+        XCTAssertNotNil(matches.first?["semantic_score"])
+        XCTAssertNotNil(matches.first?["relevance_score"])
+        XCTAssertEqual(matches.first?["matched_terms"] as? [String], ["eric", "number", "phone"])
     }
 
     func testSearchNotesReturnsNoMatchesMessage() async throws {
@@ -62,6 +70,20 @@ final class NotesToolTests: XCTestCase {
         XCTAssertEqual(matches.count, 2)
     }
 
+    func testSearchNotesUsesVectorSimilarityForRelatedWordForms() async throws {
+        let tool = try await makeTool(notes: [
+            DeskNote(title: "Running plan", content: "Morning runs should include hill intervals."),
+            DeskNote(title: "Recipe", content: "Add basil and tomatoes to the sauce.")
+        ])
+
+        let result = await tool.execute(arguments: #"{"query":"run interval"}"#)
+        let matches = try decodeMatches(from: result.output)
+
+        XCTAssertEqual(matches.first?["title"] as? String, "Running plan")
+        XCTAssertTrue((matches.first?["semantic_score"] as? Double ?? 0) > 0)
+        XCTAssertFalse(result.output.contains("Recipe"))
+    }
+
     func testSearchNotesHandlesEmptyNotesStore() async throws {
         let tool = try await makeTool(notes: [])
 
@@ -78,8 +100,8 @@ final class NotesToolTests: XCTestCase {
         return NotesTool(store: store)
     }
 
-    private func decodeMatches(from output: String) throws -> [[String: String]] {
+    private func decodeMatches(from output: String) throws -> [[String: Any]] {
         let data = try XCTUnwrap(output.data(using: .utf8))
-        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [[String: String]])
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [[String: Any]])
     }
 }
