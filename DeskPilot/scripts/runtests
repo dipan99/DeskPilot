@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+PROJECT_NAME="DeskPilot"
+SCHEME_NAME="DeskPilot"
+TEST_PLAN_NAME="DeskPilot"
+DESTINATION="platform=macOS"
+RESULT_BUNDLE_DIR="TestResults"
+
+usage() {
+    cat <<EOF
+Usage:
+  ./scripts/runtests
+  ./scripts/runtests -unit
+  ./scripts/runtests -ui
+  ./scripts/runtests -file FILE_NAME_WITHOUT_EXTENSION
+  ./scripts/runtests -result
+  ./scripts/runtests -unit -result
+  ./scripts/runtests -file AppSettingsTests -result
+
+Options:
+  -unit        Run the DeskPilotTests unit test target.
+  -ui          Run the DeskPilotUITests UI test target.
+  -file NAME   Run tests from a test file/class name without .swift.
+  -result      Write an .xcresult report bundle under TestResults/.
+  -help        Show this help.
+EOF
+}
+
+fail() {
+    echo "runtests: $*" >&2
+    exit 1
+}
+
+project_path() {
+    if [[ -d "$ROOT_DIR/$PROJECT_NAME.xcodeproj" ]]; then
+        echo "$ROOT_DIR/$PROJECT_NAME.xcodeproj"
+        return
+    fi
+
+    if [[ -d "$ROOT_DIR/$PROJECT_NAME/$PROJECT_NAME.xcodeproj" ]]; then
+        echo "$ROOT_DIR/$PROJECT_NAME/$PROJECT_NAME.xcodeproj"
+        return
+    fi
+
+    fail "Could not find $PROJECT_NAME.xcodeproj from $ROOT_DIR"
+}
+
+test_file_target() {
+    local file_name="$1"
+    local unit_file="$ROOT_DIR/$PROJECT_NAME/${PROJECT_NAME}Tests/${file_name}.swift"
+    local ui_file="$ROOT_DIR/$PROJECT_NAME/${PROJECT_NAME}UITests/${file_name}.swift"
+
+    if [[ -f "$unit_file" && -f "$ui_file" ]]; then
+        fail "Found both unit and UI test files named ${file_name}.swift. Use -unit or -ui with a future explicit selector."
+    fi
+
+    if [[ -f "$unit_file" ]]; then
+        echo "${PROJECT_NAME}Tests/$file_name"
+        return
+    fi
+
+    if [[ -f "$ui_file" ]]; then
+        echo "${PROJECT_NAME}UITests/$file_name"
+        return
+    fi
+
+    fail "No test file found for ${file_name}.swift"
+}
+
+mode="all"
+file_name=""
+write_result=false
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -unit)
+            [[ "$mode" == "all" ]] || fail "Use only one of -unit, -ui, or -file."
+            mode="unit"
+            shift
+            ;;
+        -ui)
+            [[ "$mode" == "all" ]] || fail "Use only one of -unit, -ui, or -file."
+            mode="ui"
+            shift
+            ;;
+        -file)
+            [[ "$mode" == "all" ]] || fail "Use only one of -unit, -ui, or -file."
+            [[ $# -ge 2 ]] || fail "-file requires a file name without .swift"
+            mode="file"
+            file_name="${2%.swift}"
+            shift 2
+            ;;
+        -result)
+            write_result=true
+            shift
+            ;;
+        -help|--help|help)
+            usage
+            exit 0
+            ;;
+        *)
+            fail "Unknown option: $1"
+            ;;
+    esac
+done
+
+xcode_args=(
+    test
+    -project "$(project_path)"
+    -scheme "$SCHEME_NAME"
+    -testPlan "$TEST_PLAN_NAME"
+    -destination "$DESTINATION"
+)
+
+case "$mode" in
+    unit)
+        xcode_args+=("-only-testing:${PROJECT_NAME}Tests")
+        ;;
+    ui)
+        xcode_args+=("-only-testing:${PROJECT_NAME}UITests")
+        ;;
+    file)
+        xcode_args+=("-only-testing:$(test_file_target "$file_name")")
+        ;;
+esac
+
+if [[ "$write_result" == true ]]; then
+    mkdir -p "$ROOT_DIR/$RESULT_BUNDLE_DIR"
+    timestamp="$(date +%Y%m%d-%H%M%S)"
+    result_path="$ROOT_DIR/$RESULT_BUNDLE_DIR/${mode}-${timestamp}.xcresult"
+    xcode_args+=("-resultBundlePath" "$result_path")
+    echo "Writing result bundle to: $result_path"
+fi
+
+cd "$ROOT_DIR"
+echo "Running: xcodebuild ${xcode_args[*]}"
+xcodebuild "${xcode_args[@]}"

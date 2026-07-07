@@ -1,229 +1,158 @@
-# DeskPilot Developer Architecture
+# DeskPilot Development Architecture
 
-## Overview
+DeskPilot is a SwiftUI macOS app organized around feature modules and a small shared core. The main architecture goal is to keep UI, local state, model access, and tool execution separated enough that each area can be tested independently.
 
-DeskPilot is a local-first macOS productivity assistant built with Swift and SwiftUI. It uses a local LLM (via MLX) with OpenAI-compatible tool calling to answer questions about the user's calendar, files, tasks, notes, and weather.
+## App Structure
 
-## Project Structure
-
-```
+```text
 DeskPilot/
-├── App/
-│   └── DeskPilotApp.swift              # App entry point
-│
-├── Core/
-│   ├── Constants.swift                 # Config values (server URL, model name, max tokens)
-│   ├── Prompts.swift                   # System prompt (computed, includes today's date)
-│   │
-│   ├── Models/
-│   │   └── ChatModels.swift            # Codable types for the OpenAI chat API
-│   │
-│   ├── Services/
-│   │   ├── MLXService.swift            # HTTP client for the local MLX server
-│   │   └── AssistantCoordinator.swift  # Orchestrates tool calling loop
-│   │
-│   └── Tools/
-│       ├── Tool.swift                  # Tool protocol + ToolResult
-│       └── ToolRegistry.swift          # Holds all tools, converts to API format, lookup by name
-│
-├── Features/
-│   ├── AppShellView.swift              # Main shell: NavigationSplitView + sidebar
-│   ├── Assistant/
-│   │   └── AssistantView.swift         # Chat UI with bubbles, input bar, tool trace
-│   ├── Calendar/
-│   │   └── CalendarTool.swift          # EventKit-based calendar tool
-│   ├── Files/
-│   │   └── FilesTool.swift             # Spotlight-based file search tool
-│   └── Tasks/
-│       └── RemindersTool.swift         # EventKit-based reminders tool (read-only)
-│
-├── Assets.xcassets
-└── DeskPilot.entitlements              # Sandbox permissions (network, calendar, reminders)
+  App/
+    DeskPilotApp.swift
+  Core/
+    AppSettings.swift
+    Constants.swift
+    Prompts.swift
+    Models/
+      ChatModels.swift
+    Services/
+      AssistantCoordinator.swift
+      ChatServing.swift
+      MLXService.swift
+      MockAssistantChatService.swift
+    Tools/
+      Tool.swift
+      ToolRegistry.swift
+  Features/
+    Assistant/
+    Calendar/
+    Dashboard/
+    Files/
+    Notes/
+    Settings/
+    Tasks/
+    AppShellView.swift
 ```
 
-## App Entry Flow
+## App Shell
 
-```
-DeskPilotApp
-  → AppShellView
-    → NavigationSplitView
-      → Sidebar (DeskPilotSection enum)
-      → Detail view (switches on selected section)
-        → AssistantView (for .assistant)
-        → PlaceholderScreen (for others)
-```
+`AppShellView` owns app-wide navigation and state that should survive sidebar switching.
 
-`DeskPilotSection` is a `String` enum conforming to `CaseIterable`, `Identifiable`, `Hashable`. Each case maps to a sidebar row with an SF Symbol icon.
+It currently keeps:
 
-## Tool Calling Flow
+- selected sidebar section
+- Assistant chat input, messages, and loading state
+- Dashboard snapshot, summary, loading state, and loaded state
 
-DeskPilot uses **model-driven tool calling** — the LLM decides which tool to use, not keyword matching.
+This matters because SwiftUI recreates detail views when switching sections. State that must survive tab/sidebar changes belongs above the recreated view.
 
-```
-Step 1: User types a message
-         │
-Step 2: AssistantView calls AssistantCoordinator.handleMessage()
-         │
-Step 3: Coordinator sends message + tool definitions to MLX server
-         │
-Step 4: Model returns either:
-         ├── A direct reply (no tool needed) → display it
-         │
-         └── A tool_call (e.g. get_calendar_events with arguments)
-              │
-Step 5: Coordinator looks up the tool in ToolRegistry
-         │
-Step 6: Tool.execute(arguments:) runs and returns a ToolResult
-         │
-Step 7: Coordinator appends the tool result to the conversation
-         and sends back to MLX for a natural language response
-         │
-Step 8: Final response displayed in chat with tool trace
-```
+## Settings
 
-This is a standard OpenAI function calling loop. The coordinator handles it in a single async function with no external framework (no LangChain equivalent needed).
+`AppSettings` is the source of truth for user-configurable app settings. It reads from `UserDefaults.standard` and sanitizes values through `AppSettings.current`.
 
-## Key Components
+Settings currently include:
 
-### MLXService (Core/Services/MLXService.swift)
+- user name
+- user location
+- model endpoint
+- selected model name
+- max tokens
+- conversation memory
+- response style
 
-HTTP client that talks to the local MLX-LM server at `localhost:8080`.
+`SettingsView` uses `@AppStorage` so changes persist immediately. Tests that mutate settings must reset or isolate app state to avoid leaking test data into the normal app.
 
-- `send(messages:tools:)` — Sends a full conversation with optional tool definitions. Returns `ChatResponseMessage` so the caller can check for tool calls.
-- `sendMessage(_:)` — Convenience method for simple single-message calls (no tools).
-- Uses `URLSession` with `async/await`.
+## Assistant Flow
 
-### AssistantCoordinator (Core/Services/AssistantCoordinator.swift)
+The Assistant UI uses `AssistantCoordinator` to handle chat messages.
 
-Orchestrates the tool calling loop. Stateless struct — the view owns the state, the coordinator produces values.
+High-level flow:
 
-- Takes a `ToolRegistry` and `MLXService` at init.
-- `handleMessage(_:conversationHistory:) async -> AssistantResponse` — Runs the full flow: include conversation history → send to model → execute tool if needed → send result back → return final response.
-- Includes the last `Constants.MLX.conversationMemory` messages for context.
-- Returns `AssistantResponse` with `text` and optional `toolTrace`.
-- Handles errors: if MLX is down, returns an offline message.
+1. User sends a message from `AssistantView`.
+2. `AssistantCoordinator` sends conversation context, system prompt, and tool definitions to a `ChatServing` implementation.
+3. The chat service is either:
+   - `MLXService` for real local model calls
+   - `MockAssistantChatService` for deterministic UI tests
+4. If the model returns tool calls, the coordinator resolves tools through `ToolRegistry`.
+5. Tool results are sent back to the model for a final user-facing response.
 
-### Tool Protocol (Core/Tools/Tool.swift)
+`ChatServing` keeps the coordinator testable because tests can inject scripted model responses instead of calling the real model.
 
-```swift
-protocol Tool {
-    var name: String { get }          // API identifier (e.g. "get_calendar_events")
-    var displayName: String { get }   // Human-readable (e.g. "Calendar")
-    var description: String { get }   // Sent to model so it knows when to use this tool
-    var parameters: [String: Any] { get }  // JSON schema for the tool's arguments
-    func execute(arguments: String) async -> ToolResult
-}
-```
+## Tools
 
-Each tool is self-describing. The `ToolRegistry` converts tools to `ToolDefinition` structs for the API automatically. Adding a new tool means:
-1. Create a struct conforming to `Tool`
-2. Add it to the registry in `AssistantView`
+Tools conform to `Tool`.
 
-No routing logic needs to change.
+Each tool provides:
 
-### ToolRegistry (Core/Tools/ToolRegistry.swift)
+- stable `name` used by model tool calls
+- human-readable `displayName`
+- model-facing `description`
+- JSON schema-like `parameters`
+- async `execute(arguments:)`
 
-- `toolDefinitions()` — Converts all registered tools to OpenAI-compatible `ToolDefinition` array.
-- `tool(named:)` — Looks up a tool by name when the model returns a tool call.
+Current tools:
 
-### ChatModels (Core/Models/ChatModels.swift)
+- `CalendarTool`
+- `FilesTool`
+- `RemindersTool`
+- `NotesTool`
 
-Codable types matching the OpenAI chat completions API:
+`ToolRegistry` converts registered tools into model-facing definitions and resolves tool calls by name.
 
-**Request side:**
-- `ChatMessage` — role, content, optional tool_call_id and tool_calls
-- `ChatRequest` — model, messages, optional tools array, optional max_tokens
-- `ToolDefinition` / `ToolFunctionDefinition` — describes a tool for the model
+## Notes
 
-**Response side:**
-- `ChatResponse` → `ChatChoice` → `ChatResponseMessage`
-- `ChatResponseMessage` has optional `content` (text reply) and optional `toolCalls` (function calls)
-- `ToolCall` → `ToolCallFunction` — the model's requested function name + arguments JSON
+Notes are local app data. The UI supports creating, opening, editing, and saving notes. Notes persist locally through `NotesStore`.
 
-**Helper:**
-- `AnyCodable` — Handles encoding/decoding `[String: Any]` dictionaries for tool parameter schemas.
+`NotesTool` lets the Assistant query notes. Retrieval is deterministic and hybrid:
 
-### Prompts (Core/Prompts.swift)
+- lexical/token scoring handles exact or near-exact word overlap
+- lightweight semantic-style scoring handles related word forms
+- ranked results include scores, matched terms, and snippets
 
-`Prompts.system` is a **computed property** (not a constant) because it includes today's date, which the model needs to resolve relative date references like "tomorrow" or "next week".
+This keeps retrieval explainable and testable while giving the model relevant note context.
 
-### Constants (Core/Constants.swift)
+## Dashboard
 
-```swift
-Constants.MLX.baseURL              // "http://127.0.0.1:8080/v1/chat/completions"
-Constants.MLX.modelName            // "default_model"
-Constants.MLX.maxTokens            // 2048
-Constants.MLX.conversationMemory   // 9 (number of past messages to include)
-```
+`DashboardView` displays:
 
-`maxTokens` is set to 2048 because the model uses internal reasoning tokens before producing output. The default (512) was too low and caused the model to run out of tokens before it could output tool calls.
+- AI summary
+- recent notes
+- upcoming calendar events
+- incomplete reminders
+- recent files
 
-`conversationMemory` controls how many recent messages (user + assistant) are included in each request so the model can answer follow-up questions.
+`DashboardLoader` gathers a `DashboardSnapshot`. `DashboardSummarizer` asks the local model for a short summary, but falls back to `DashboardSnapshot.deterministicSummary` if the model fails or returns empty text.
 
-## Chat UI (Features/Assistant/AssistantView.swift)
+Dashboard summary loading is intentionally not triggered on every sidebar switch. `AppShellView` owns dashboard state, and `DashboardView` only loads when:
 
-- `@State messages: [ChatBubbleMessage]` — conversation history
-- `@State isLoading` — disables send button during requests
-- `ScrollViewReader` auto-scrolls to the latest message
-- `.onSubmit` on TextField allows pressing Enter to send
+- the dashboard has not loaded yet
+- the user clicks Refresh
 
-**ChatBubbleMessage** has:
-- `role` (.user or .assistant)
-- `content` (the text)
-- `toolTrace` (optional, shown as small caption under assistant bubbles)
+## Calendar And Tasks
 
-**ChatBubble** renders:
-- User messages: blue, right-aligned
-- Assistant messages: gray, left-aligned
-- Tool trace: caption2 text below the bubble with `assistantToolTrace` accessibility ID
+Calendar and Tasks use EventKit.
 
-**"Thinking..." flow:**
-1. User sends message → user bubble added
-2. "Thinking..." placeholder bubble added immediately
-3. Coordinator runs async
-4. Placeholder replaced in-place with the real response (same UUID)
+- `CalendarView` shows upcoming events.
+- `TasksView` shows incomplete reminders.
+- `CalendarTool` and `RemindersTool` expose those capabilities to the Assistant.
 
-## Logging
+Because EventKit depends on system permissions and user data, UI tests should verify stable UI states rather than exact event/reminder names.
 
-Uses Apple's `os.Logger` framework. Filter console output by subsystem `com.dipanbag.DeskPilot`.
+## Files
 
-| Category | What it logs |
-|----------|-------------|
-| `MLXService` | Outgoing request JSON, raw server response |
-| `AssistantCoordinator` | Tool count sent, model response summary, tool call name + arguments, tool result, final response, errors |
-| `CalendarTool` | Raw arguments received, parsed date range, event count |
-| `RemindersTool` | Raw arguments received, status filter, reminder count |
-| `FilesTool` | Query string, search path, result count |
+`FilesView` shows recently used files and folders and can reveal them in Finder. Recent file discovery depends on macOS metadata availability, so UI tests should allow either loaded results or an empty/error state.
 
-## Sandbox Entitlements
+## Weather
 
-The app runs in App Sandbox with these permissions:
+Weather was removed. Apple WeatherKit requires developer account capability/provisioning access, and the project currently avoids third-party weather APIs.
 
-- **Outgoing Connections (Client)** — Required for HTTP calls to localhost:8080
-- **Calendars** — Required for EventKit access to read calendar events and reminders
+## Test Mode
 
-The Calendars sandbox entitlement covers both Calendar and Reminders since both use EventKit. A `Privacy - Reminders Usage Description` should be set in the Info tab for the permission dialog.
+The app recognizes launch arguments used by UI tests:
 
-These are configured in Signing & Capabilities in Xcode and stored in `DeskPilot.entitlements`.
+- `UI_TESTING`
+- `RESET_APP_STATE`
+- `USE_MOCK_ASSISTANT`
 
-## Adding a New Tool
+When launched with `UI_TESTING RESET_APP_STATE`, the app resets test-sensitive state such as notes and settings.
 
-1. Create a new file in the appropriate `Features/` directory (e.g. `Features/Weather/WeatherTool.swift`)
-2. Implement the `Tool` protocol with `name`, `displayName`, `description`, `parameters`, and `execute()`
-3. Add it to the registry in `AssistantView.swift`:
-   ```swift
-   private let coordinator = AssistantCoordinator(
-       registry: ToolRegistry(tools: [
-           CalendarTool(),
-           FilesTool(),
-           RemindersTool(),
-           NewTool()  // add here
-       ]),
-       mlxService: MLXService()
-   )
-   ```
-4. The model will automatically see the new tool and use it when relevant. No routing logic changes needed.
-
-## Backend
-
-See `backend_setup.md` for MLX-LM server setup instructions.
+`USE_MOCK_ASSISTANT` makes `AssistantView` use `MockAssistantChatService` instead of `MLXService`, enabling deterministic Assistant UI tests.

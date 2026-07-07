@@ -1,56 +1,108 @@
 # DeskPilot Progress
 
-## What's Built
+This document tracks current implementation status.
 
-### Core Infrastructure
-- **App shell** — `NavigationSplitView` with sidebar (`DeskPilotSection` enum) and detail views
-- **MLX backend integration** — Local LLM server (Qwen3-4B-4bit via mlx-lm) with OpenAI-compatible API at `localhost:8080`
-- **MLXService** — `URLSession` async/await HTTP client with debug logging
-- **Chat UI** — Scrollable chat with user/assistant bubbles, "Thinking..." indicator, Enter-to-send
-- **System prompt** — Computed property that includes today's date for resolving relative dates
-- **Constants** — Centralized config (server URL, model name, max tokens, memory count)
+## Completed
 
-### Tool Calling System
-- **Tool protocol** — Self-describing tools with name, description, JSON schema parameters, and async execute
-- **ToolRegistry** — Holds all tools, converts to OpenAI-compatible definitions, lookup by name
-- **AssistantCoordinator** — Orchestrates the full tool calling loop (send → tool call → execute → send result → final response)
-- **Model-driven routing** — The LLM decides which tool to call, no keyword matching
+### App Shell
 
-### Tools Implemented
-| Tool | File | What it does |
-|------|------|-------------|
-| **CalendarTool** | `Features/Calendar/CalendarTool.swift` | Reads calendar events via EventKit. Accepts `start_date` and optional `end_date` parameters. |
-| **FilesTool** | `Features/Files/FilesTool.swift` | Searches files via Spotlight (`NSMetadataQuery`). Uses `@MainActor` isolated `SpotlightSearch` class with async notification stream. |
-| **RemindersTool** | `Features/Tasks/RemindersTool.swift` | Reads reminders via EventKit. Filters by `status` (incomplete/complete/all) and optional due date range. Read-only. |
+- Sidebar navigation for Dashboard, Assistant, Files, Calendar, Tasks, Notes, and Settings.
+- Assistant chat state persists when switching sections.
+- Dashboard state persists when switching sections.
 
-### Conversation Memory
-- Last 9 messages (configurable via `Constants.MLX.conversationMemory`) included in each request
-- History captured before appending current message to avoid including the "Thinking..." placeholder
-- System prompt tells the model to use conversation history for follow-up questions
+### Assistant
 
-### Logging
-- `os.Logger` with subsystem `com.dipanbag.DeskPilot`
-- Categories: `MLXService`, `AssistantCoordinator`, `CalendarTool`, `RemindersTool`, `FilesTool`
-- Logs outgoing request JSON, raw responses, tool calls, tool results, errors
+- Local-model chat flow through `MLXService`.
+- `ChatServing` abstraction for real and mocked assistant services.
+- `AssistantCoordinator` supports direct responses and tool-call responses.
+- Mocked Assistant service supports deterministic UI tests.
 
-### Sandbox & Permissions
-- Outgoing Connections (Client) — for localhost HTTP
-- Calendar entitlement — covers both Calendar and Reminders via EventKit
-- Privacy usage descriptions needed for Calendar and Reminders
+### Tools
 
-## Key Decisions & Lessons
+- Tool protocol and registry.
+- Calendar tool.
+- Files tool.
+- Reminders tool.
+- Notes tool with hybrid retrieval.
+- Weather tool removed.
 
-- **max_tokens = 2048** — The model uses reasoning tokens internally. Default 512 caused `finish_reason: "length"` with no output.
-- **Model-driven tool calling over keyword routing** — Proper OpenAI function calling pattern. The model sees tool definitions and decides when to use them.
-- **Computed system prompt** — Includes today's date so the model can resolve "tomorrow", "next week", etc.
-- **No concurrency escape hatches** — Used `@MainActor` isolated classes with async notification streams instead of `nonisolated(unsafe)` or `@preconcurrency import`.
-- **Calendar entitlement covers Reminders** — Both use EventKit; no separate Reminders checkbox in App Sandbox.
+### Notes
 
-## Not Yet Built
-- Weather tool
-- Notes tool
-- Dashboard view (currently placeholder)
-- Settings view
-- Write operations (creating events, completing reminders)
-- Streaming responses
-- UI tests updated for tool calling architecture
+- Notes section implemented.
+- Create notes with title and content.
+- Auto-title notes from content when title is omitted.
+- Open and edit existing notes.
+- Notes persist locally.
+- Notes tool can retrieve relevant saved notes for Assistant queries.
+
+### Calendar
+
+- Calendar section shows upcoming events through EventKit.
+- Calendar tool exposes event data to the Assistant.
+
+### Tasks
+
+- Tasks section shows incomplete reminders through EventKit.
+- Reminders tool exposes reminder data to the Assistant.
+
+### Files
+
+- Files section lists recent files/folders from macOS metadata.
+- File rows can reveal items in Finder.
+- Files tool exposes recent file information to the Assistant.
+
+### Settings
+
+- Settings section added.
+- User name and location settings.
+- Assistant response style.
+- Conversation memory.
+- Model endpoint.
+- Model selection dropdown with `default_model (Qwen3-4B-4bit)`.
+- Max tokens.
+- Reset to defaults.
+
+### Dashboard
+
+- Dashboard shows recent notes, upcoming events, reminders, and recent files.
+- Dashboard cards navigate to their source sections.
+- AI summary at the top of the Dashboard.
+- AI summary is generated only on initial Dashboard load and manual Refresh, not every sidebar switch.
+- Deterministic summary fallback when the model is unavailable.
+
+### Testing
+
+Unit tests:
+
+- `AppSettingsTests`
+- `AssistantCoordinatorTests`
+- `DashboardSnapshotTests`
+- `NotesToolTests`
+- `ToolRegistryTests`
+
+UI tests:
+
+- `NavigationUITests`
+- `NotesUITests`
+- `AssistantUITests`
+- `DashboardUITests`
+- `SettingsUITests`
+- launch tests
+- optional real AI evaluation test
+
+Test support helpers:
+
+- app launch helper
+- sidebar navigation helper
+- element waiting/clicking helper
+
+Test runner:
+
+- `scripts/runtests`
+- supports all tests, unit-only, UI-only, file/class selection, and `.xcresult` report output.
+
+## Deferred
+
+- Weather integration. Apple WeatherKit requires paid developer capability/provisioning access, and third-party weather APIs are currently out of scope.
+- More UI tests for Files, Calendar, and Tasks can be added later with flexible assertions around system data and permission states.
+- Deeper Dashboard summarizer unit tests would benefit from injecting a `ChatServing` dependency into `DashboardSummarizer`.

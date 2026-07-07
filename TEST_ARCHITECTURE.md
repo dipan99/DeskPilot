@@ -1,79 +1,65 @@
 # DeskPilot Test Architecture
 
-## Overview
+DeskPilot uses two test targets:
 
-DeskPilot uses a layered test strategy. The goal is to keep most tests deterministic, fast, and useful during normal development, while still allowing optional real local-LLM evaluation when explicitly requested.
+- `DeskPilotTests` for deterministic unit tests.
+- `DeskPilotUITests` for end-to-end UI flows through XCUIAutomation.
 
-The test suite is split into:
+The goal is to test stable app behavior without making tests depend on local machine data unless the test is explicitly marked as an evaluation.
 
-- Unit tests for local logic and tools
-- Coordinator tests with a mocked model
-- UI tests with mocked assistant behavior
-- Optional real-AI evaluation tests
+## Unit Tests
 
-This separation matters because the local LLM is slower, more variable, and depends on an external process. Normal tests should not fail because MLX is not running or because a model phrased a valid answer differently.
+Unit tests live in:
 
-## Test Targets
-
-### `DeskPilotTests`
-
-Unit test target. These tests run inside the app test host and should be deterministic.
+```text
+DeskPilotTests/
+```
 
 Current files:
 
-- `DeskPilotTests.swift`
-  - Default generated placeholder tests.
-- `NotesToolTests.swift`
-  - Tests `NotesTool` directly with seeded notes in a temporary JSON file.
-  - Does not launch the UI.
-  - Does not call MLX.
+- `AppSettingsTests.swift`
 - `AssistantCoordinatorTests.swift`
-  - Tests the assistant tool-calling loop with a scripted fake chat service.
-  - Verifies that the coordinator sends tool definitions, executes tools, sends tool results back, and returns final text.
-  - Does not call MLX.
+- `DashboardSnapshotTests.swift`
+- `DeskPilotTests.swift`
+- `NotesToolTests.swift`
+- `ToolRegistryTests.swift`
 
-Use this target for:
+### What Belongs In Unit Tests
 
-- tool behavior
-- parsing and ranking logic
-- persistence helpers
-- coordinator flow
-- error handling
+Use unit tests for logic that does not require clicking through the app:
 
-### `DeskPilotUITests`
+- settings defaults, trimming, clamping, and reset behavior
+- prompt and model/tool coordination behavior
+- tool registry lookup and definitions
+- note retrieval ranking and output formatting
+- dashboard snapshot formatting and deterministic summary fallback
 
-UI automation target. These tests launch the app and interact through accessibility APIs.
+### Isolation
+
+Unit tests should avoid permanently changing user data.
+
+`AppSettingsTests` snapshots relevant `UserDefaults` values in `setUpWithError`, resets settings for the test, and restores the original values in `tearDownWithError`.
+
+`NotesToolTests` writes to a temporary notes file instead of the normal app notes store.
+
+## UI Tests
+
+UI tests live in:
+
+```text
+DeskPilotUITests/
+```
 
 Current files:
 
-- `DeskPilotUITests.swift`
-  - Small smoke test for app launch.
-- `NavigationUITests.swift`
-  - Verifies Dashboard opens by default.
-  - Verifies sidebar navigation opens every major section.
-- `NotesUITests.swift`
-  - Verifies Notes UI workflows:
-    - open Notes section
-    - create note with title/content
-    - create note without title
-    - open and edit an existing note
 - `AssistantUITests.swift`
-  - Uses mocked assistant behavior via `USE_MOCK_ASSISTANT`.
-  - Verifies Assistant UI response rendering and chat persistence across tab switches.
+- `DashboardUITests.swift`
+- `DeskPilotUITests.swift`
+- `DeskPilotUITestsLaunchTests.swift`
+- `NavigationUITests.swift`
+- `NotesUITests.swift`
 - `RealAIEvaluationUITests.swift`
-  - Optional real local-LLM evaluation.
-  - Skipped by default unless `RUN_REAL_AI_EVALS=1` is set.
-
-Use this target for:
-
-- user workflows
-- sidebar navigation
-- form entry
-- persistence visible in the UI
-- mocked assistant UI behavior
-- optional real assistant evaluation
-
-## Test Support Helpers
+- `SettingsUITests.swift`
 
 Shared helpers live in:
 
@@ -81,437 +67,167 @@ Shared helpers live in:
 DeskPilotUITests/TestSupport/
 ```
 
-### `XCTestCase+AppLaunch.swift`
+Helpers:
 
-Provides:
+- `XCTestCase+AppLaunch.swift`
+- `XCUIApplication+Sidebar.swift`
+- `XCUIElement+Waiting.swift`
 
-```swift
-launchDeskPilot(resetState:additionalArguments:additionalEnvironment:)
-attachScreenshot(named:app:lifetime:)
-```
+### Launch Arguments
 
-Why:
+UI tests use launch arguments to control app behavior:
 
-- keeps app launch setup consistent
-- always passes `UI_TESTING`
-- lets tests opt into app launch arguments like `USE_MOCK_ASSISTANT`
-- centralizes screenshot attachment behavior
+- `UI_TESTING`
+- `RESET_APP_STATE`
+- `USE_MOCK_ASSISTANT`
 
-`resetState: true` adds `RESET_APP_STATE`, which lets the app clear UI-test data before launch. Use this for UI tests that create persisted data, especially Notes workflows.
+`UI_TESTING RESET_APP_STATE` resets test-sensitive state before launch. This currently includes local notes test storage and app settings.
 
-### `XCUIApplication+Sidebar.swift`
+`USE_MOCK_ASSISTANT` makes the Assistant use `MockAssistantChatService`, which avoids real model calls in deterministic UI tests.
 
-Provides:
+### UI Test Principles
 
-```swift
-openSidebarSection(_:)
-```
+- Test user-visible flows, not internal implementation details.
+- Use accessibility identifiers for stable selection.
+- Avoid exact assertions against user/system data from Calendar, Reminders, Files, or Spotlight.
+- For AI output, prefer mocked Assistant tests for CI and reserve real model checks for optional evaluation.
+- Use `XCTContext.runActivity` for major steps so Xcode test reports are readable.
+- Attach screenshots only for useful states or failure-oriented debugging.
 
-Why:
+## Current UI Coverage
 
-- SwiftUI sidebar rows are exposed as cells/static text, not buttons
-- tests should not repeat brittle sidebar queries
-- `SidebarSection` keeps section names centralized
+Navigation:
 
-### `XCUIElement+Waiting.swift`
+- app launches to Dashboard
+- sidebar opens each major section
 
-Provides:
+Notes:
 
-```swift
-waitAndClick()
-waitAndTypeText(_:)
-assertExists()
-```
+- Notes section opens
+- create note with title and content
+- create note without title
+- open and edit existing note
 
-Why:
+Assistant:
 
-- UI tests need explicit waits
-- failure messages become more useful
-- tests read as workflows instead of low-level polling
+- mocked Assistant uses Notes tool response
+- chat persists when switching sections
 
-## Assistant Test Strategy
+Dashboard:
 
-Assistant behavior is tested at multiple levels.
+- Dashboard summary and refresh controls exist
+- Dashboard card Open buttons navigate to Notes, Calendar, Tasks, and Files
 
-### 1. Tool Tests
+Settings:
 
-`NotesToolTests` calls `NotesTool.execute(arguments:)` directly.
+- Settings section opens
+- user can update name/location and return to the same values
+- test cleanup resets Settings after mutation
 
-This proves the tool can retrieve facts from saved notes without involving the model.
+## Real AI Evaluation
 
-Example:
+`RealAIEvaluationUITests` is optional evaluation coverage, not core deterministic coverage. It can seed known data and ask the real local model to retrieve a fact.
 
-```text
-Given a note containing "Eric's phone number is 555-1234"
-When NotesTool searches "Eric phone number"
-Then output contains "555-1234"
-```
+For factual retrieval, use exact fact checks. Example:
 
-Why:
+- seed note: `Eric's phone number is 555-1234`
+- ask: `What was Eric's phone number?`
+- acceptable response must contain `555-1234`
 
-- deterministic
-- fast
-- exact assertions
-- no dependency on MLX
-
-### 2. Coordinator Tests
-
-`AssistantCoordinatorTests` injects a scripted `ChatServing` implementation.
-
-The fake model returns:
-
-1. a tool call, such as `search_notes`
-2. a final assistant response
-
-This proves the coordinator correctly:
-
-- sends tool definitions
-- executes the requested tool
-- appends the tool result
-- asks the model for the final response
-- returns response text and tool trace
-
-Why:
-
-- tests the model-tool loop
-- no real LLM dependency
-- easy to assert exact call structure
-
-### 3. Mocked Assistant UI Tests
-
-`AssistantUITests` launches the app with:
-
-```text
-USE_MOCK_ASSISTANT
-```
-
-That makes `AssistantView` use `MockAssistantChatService` instead of `MLXService`.
-
-Why:
-
-- verifies real UI behavior
-- avoids MLX dependency in normal UI tests
-- keeps response content predictable
-- still exercises the Assistant UI, `AssistantCoordinator`, and tool trace display
-
-### 4. Real AI Evaluation
-
-`RealAIEvaluationUITests` launches the app normally and talks to the real local MLX server.
-
-It is skipped unless this environment variable is set:
-
-```text
-RUN_REAL_AI_EVALS=1
-```
-
-Current eval:
-
-```text
-Seed note: Eric's phone number is 555-1234
-Ask: Use my notes. What was Eric's phone number?
-Assert: response contains 555-1234
-```
-
-Why it is opt-in:
-
-- requires MLX server to be running
-- slower than normal tests
-- model behavior can vary
-- should not block regular local or CI runs by default
-
-For factual retrieval, prefer exact fact checks such as phone numbers, dates, emails, or names. Do not use AI-as-judge for normal automated pass/fail tests.
-
-## Test Data And State Isolation
-
-Normal UI tests launch with `UI_TESTING`. In that mode, Notes storage uses a UI-test-specific notes file instead of the regular app notes file.
-
-Tests that create persisted UI data should launch with:
-
-```swift
-launchDeskPilot(resetState: true)
-```
-
-This adds `RESET_APP_STATE`, and the app deletes the UI-test notes store before the test starts. This keeps tests independent from previous runs and avoids polluting real user data.
-
-Unit tests should avoid app-global persistence entirely. Prefer temporary files or injected stores, as `NotesToolTests` does with a temporary notes JSON file.
-
-Real AI evaluations are optional and skipped by default. They should seed their own facts with unique titles and assert exact factual values rather than relying on existing user data.
-
-## Mocking Architecture
-
-`ChatServing` is the protocol used by the coordinator:
-
-```swift
-protocol ChatServing {
-    func send(messages: [ChatMessage], tools: [ToolDefinition]?) async throws -> ChatResponseMessage
-}
-```
-
-Implementations:
-
-- `MLXService`
-  - production local model client
-- `MockAssistantChatService`
-  - UI-test mock service
-- scripted fake service inside `AssistantCoordinatorTests`
-  - unit-test fake model
-
-Why:
-
-- keeps `AssistantCoordinator` independent from one concrete model client
-- allows deterministic unit/UI tests
-- keeps production behavior unchanged
-
-## Accessibility Notes
-
-SwiftUI on macOS sometimes exposes visible text as `value` instead of `label`. Tests that inspect chat or note cards may need to check both:
-
-```swift
-label CONTAINS text OR value CONTAINS text
-```
-
-Chat bubbles explicitly set:
-
-```swift
-.accessibilityLabel(message.content)
-.accessibilityIdentifier("assistantResponse")
-```
-
-This makes UI test queries more stable.
+Do not use another LLM to grade these tests in core CI. Prefer exact checks for facts like phone numbers, dates, names, and emails.
 
 ## Running Tests In Xcode
 
-### Run All Normal Tests
+Use the Test navigator or click the diamond next to a test class/function.
 
-Use:
+Common Xcode flows:
+
+- Run all tests with `Cmd+U`.
+- Run a test class from the gutter diamond.
+- Open the Report navigator to inspect `XCTContext.runActivity` steps and screenshots.
+
+## Running Tests From The Command Line
+
+The project includes a wrapper script:
+
+```bash
+bash scripts/runtests
+bash scripts/runtests -unit
+bash scripts/runtests -ui
+bash scripts/runtests -file AppSettingsTests
+bash scripts/runtests -file SettingsUITests
+bash scripts/runtests -file AppSettingsTests -result
+```
+
+If executable permissions are enabled:
+
+```bash
+./scripts/runtests -unit
+```
+
+### Script Options
 
 ```text
-Command-U
+no args       run all tests
+-unit         run DeskPilotTests
+-ui           run DeskPilotUITests
+-file NAME    run tests from NAME.swift, resolving unit vs UI target
+-result       write an .xcresult report bundle under TestResults/
+-help         print usage
 ```
 
-The real AI evaluation test will appear in the suite but skip unless `RUN_REAL_AI_EVALS=1` is set.
+### Direct xcodebuild
 
-### Run One Test Class
+Run all tests:
 
-Open the Test Navigator:
-
-```text
-Command-6
-```
-
-Click the diamond next to a class, for example:
-
-- `NotesToolTests`
-- `AssistantCoordinatorTests`
-- `NavigationUITests`
-- `NotesUITests`
-- `AssistantUITests`
-
-### Run One Test Method
-
-Click the diamond next to the individual method in the editor or Test Navigator.
-
-Examples:
-
-- `testSearchNotesFindsRelevantPhoneNumber`
-- `testCoordinatorExecutesToolCallAndReturnsFinalResponse`
-- `testAssistantUsesMockedNotesToolResponse`
-
-### Run Real AI Evaluation In Xcode
-
-1. Start the local MLX server.
-2. In Xcode, choose the `DeskPilot` scheme.
-3. Open:
-
-   ```text
-   Product > Scheme > Edit Scheme...
-   ```
-
-4. Select `Test`.
-5. Open the `Arguments` tab.
-6. Under `Environment Variables`, add:
-
-   ```text
-   RUN_REAL_AI_EVALS = 1
-   ```
-
-7. Run:
-
-   ```text
-   RealAIEvaluationUITests/testRealAssistantCanRetrieveSeededNoteFact
-   ```
-
-Leave `RUN_REAL_AI_EVALS` disabled for normal test runs.
-
-## Running Tests From Command Line
-
-All commands below assume you are in the repository root that contains `DeskPilot.xcodeproj`.
-
-If your local checkout path contains spaces, keep quoted paths in any commands that include explicit paths.
-
-### Build
-
-```sh
-xcodebuild build \
-  -project "DeskPilot.xcodeproj" \
-  -scheme "DeskPilot" \
-  -destination "platform=macOS"
-```
-
-### Run All Tests
-
-```sh
+```bash
 xcodebuild test \
-  -project "DeskPilot.xcodeproj" \
-  -scheme "DeskPilot" \
-  -destination "platform=macOS"
+  -project DeskPilot.xcodeproj \
+  -scheme DeskPilot \
+  -testPlan DeskPilot \
+  -destination 'platform=macOS'
 ```
 
-The real AI evaluation test will skip unless `RUN_REAL_AI_EVALS=1` is present.
+Run only unit tests:
 
-### Run All Unit Tests
-
-```sh
+```bash
 xcodebuild test \
-  -project "DeskPilot.xcodeproj" \
-  -scheme "DeskPilot" \
-  -destination "platform=macOS" \
+  -project DeskPilot.xcodeproj \
+  -scheme DeskPilot \
+  -testPlan DeskPilot \
+  -destination 'platform=macOS' \
   -only-testing:DeskPilotTests
 ```
 
-### Run All UI Tests
+Run one test file/class:
 
-```sh
+```bash
 xcodebuild test \
-  -project "DeskPilot.xcodeproj" \
-  -scheme "DeskPilot" \
-  -destination "platform=macOS" \
-  -only-testing:DeskPilotUITests
+  -project DeskPilot.xcodeproj \
+  -scheme DeskPilot \
+  -testPlan DeskPilot \
+  -destination 'platform=macOS' \
+  -only-testing:DeskPilotTests/AppSettingsTests
 ```
 
-### Run One Test Class
+Run with an `.xcresult` report:
 
-Unit test class:
-
-```sh
+```bash
 xcodebuild test \
-  -project "DeskPilot.xcodeproj" \
-  -scheme "DeskPilot" \
-  -destination "platform=macOS" \
-  -only-testing:DeskPilotTests/NotesToolTests
+  -project DeskPilot.xcodeproj \
+  -scheme DeskPilot \
+  -testPlan DeskPilot \
+  -destination 'platform=macOS' \
+  -resultBundlePath TestResults/latest.xcresult
 ```
 
-UI test class:
+## Extending Tests For A New Feature
 
-```sh
-xcodebuild test \
-  -project "DeskPilot.xcodeproj" \
-  -scheme "DeskPilot" \
-  -destination "platform=macOS" \
-  -only-testing:DeskPilotUITests/AssistantUITests
-```
+When adding a new feature:
 
-### Run One Test Method
-
-```sh
-xcodebuild test \
-  -project "DeskPilot.xcodeproj" \
-  -scheme "DeskPilot" \
-  -destination "platform=macOS" \
-  -only-testing:DeskPilotTests/NotesToolTests/testSearchNotesFindsRelevantPhoneNumber
-```
-
-```sh
-xcodebuild test \
-  -project "DeskPilot.xcodeproj" \
-  -scheme "DeskPilot" \
-  -destination "platform=macOS" \
-  -only-testing:DeskPilotUITests/AssistantUITests/testAssistantUsesMockedNotesToolResponse
-```
-
-### Run Real AI Evaluation From CLI
-
-Start the local MLX server first.
-
-Then run:
-
-```sh
-RUN_REAL_AI_EVALS=1 xcodebuild test \
-  -project "DeskPilot.xcodeproj" \
-  -scheme "DeskPilot" \
-  -destination "platform=macOS" \
-  -only-testing:DeskPilotUITests/RealAIEvaluationUITests/testRealAssistantCanRetrieveSeededNoteFact
-```
-
-Without `RUN_REAL_AI_EVALS=1`, this test skips.
-
-### Run Mocked Assistant UI Tests From CLI
-
-No MLX server required:
-
-```sh
-xcodebuild test \
-  -project "DeskPilot.xcodeproj" \
-  -scheme "DeskPilot" \
-  -destination "platform=macOS" \
-  -only-testing:DeskPilotUITests/AssistantUITests
-```
-
-The tests pass `USE_MOCK_ASSISTANT` through `launchDeskPilot(additionalArguments:)`.
-
-## What Should Not Be Tested With Real AI By Default
-
-Avoid default pass/fail tests that depend on:
-
-- exact wording from the real model
-- similarity scores
-- AI judging another AI response
-- local MLX availability
-- model latency
-
-Those belong in opt-in evaluation tests, not normal deterministic tests.
-
-## Extending The Test Suite
-
-When adding a new feature, add tests at the lowest useful layer first.
-
-### New Local Feature
-
-For a feature that does not involve the assistant, such as a new screen or editor:
-
-1. Add unit tests for pure formatting, parsing, persistence, or data-model logic in `DeskPilotTests`.
-2. Add UI tests for the main user workflow in `DeskPilotUITests`.
-3. Add accessibility identifiers to controls that tests need to locate.
-4. Use `XCTContext.runActivity` for major UI steps.
-5. Attach screenshots only for useful states or failure diagnosis.
-6. Use `launchDeskPilot(resetState: true)` if the workflow creates persisted UI data.
-
-### New Tool
-
-For a new assistant tool:
-
-1. Add deterministic tool tests in `DeskPilotTests`.
-2. Seed the tool with controlled data using temporary files, injected stores, or fake dependencies.
-3. Assert exact tool output for important facts and error cases.
-4. Add coordinator tests if the tool introduces a new tool-calling behavior.
-5. Add mocked assistant UI tests only if the user-visible Assistant behavior changes.
-
-### New Assistant Flow
-
-For a new assistant behavior:
-
-1. Keep the core flow covered by `AssistantCoordinatorTests` using a fake `ChatServing` implementation.
-2. Use `MockAssistantChatService` for UI-level assistant tests.
-3. Avoid requiring MLX for normal tests.
-4. Add a real AI evaluation only for important factual retrieval behavior that cannot be meaningfully covered with mocks.
-
-### New Real AI Evaluation
-
-For an opt-in real model eval:
-
-1. Put it in `RealAIEvaluationUITests`.
-2. Keep it skipped unless `RUN_REAL_AI_EVALS=1`.
-3. Seed exact, unique test facts during the test.
-4. Assert exact values such as phone numbers, dates, emails, names, or IDs.
-5. Do not assert exact prose from the model.
-6. Do not use real AI evals as required CI coverage.
+1. Add unit tests for pure logic, storage, formatting, and tool behavior.
+2. Add UI tests only for user-facing flows.
+3. Add accessibility identifiers for controls the tests need to target.
+4. Use `RESET_APP_STATE` for data that should not leak into the real app.
+5. Prefer mocked services for deterministic tests.
+6. Avoid asserting exact values from Apple system services unless the test owns that data.
