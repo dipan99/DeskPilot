@@ -7,9 +7,9 @@ import Foundation
 
 enum Constants {
     enum MLX {
-        static let baseURL = "http://127.0.0.1:8080/v1/chat/completions"
-        static let modelName = "default_model"
-        static let maxTokens = 2048
-        static let conversationMemory = 9
+        static let defaultBaseURL = "http://127.0.0.1:8080/v1/chat/completions"
+        static let defaultModelName = "default_model"
+        static let defaultMaxTokens = 2048
+        static let defaultConversationMemory = 9
     }
 }

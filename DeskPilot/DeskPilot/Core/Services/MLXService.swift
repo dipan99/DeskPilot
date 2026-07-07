@@ -15,15 +15,17 @@ struct MLXService: ChatServing {
     /// Send a conversation (array of messages) to the model, optionally with tool definitions.
     /// Returns the raw ChatResponseMessage so the caller can check for tool_calls.
     func send(messages: [ChatMessage], tools: [ToolDefinition]? = nil) async throws -> ChatResponseMessage {
-        guard let url = URL(string: Constants.MLX.baseURL) else {
+        let settings = AppSettings.current
+
+        guard let url = URL(string: settings.modelEndpoint) else {
             throw MLXError.invalidURL
         }
 
         let chatRequest = ChatRequest(
-            model: Constants.MLX.modelName,
+            model: settings.modelName,
             messages: messages,
             tools: tools,
-            maxTokens: Constants.MLX.maxTokens
+            maxTokens: settings.maxTokens
         )
 
         var request = URLRequest(url: url)

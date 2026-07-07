@@ -37,7 +37,7 @@ struct AssistantCoordinator {
         ]
 
         // Include the last N messages from conversation history
-        let memoryCount = Constants.MLX.conversationMemory
+        let memoryCount = AppSettings.current.conversationMemory
         let recentHistory = conversationHistory.suffix(memoryCount)
         for pastMessage in recentHistory {
             let role = pastMessage.role == .user ? "user" : "assistant"

@@ -59,15 +59,15 @@ struct AppShellView: View {
                     isLoading: $assistantIsLoading
                 )
             case .files:
-                PlaceholderScreen(title: "Files", subtitle: "Search local files and open results.")
+                FilesView()
             case .calendar:
-                PlaceholderScreen(title: "Calendar", subtitle: "View meetings and upcoming events.")
+                CalendarView()
             case .tasks:
-                PlaceholderScreen(title: "Tasks", subtitle: "Track reminders and action items.")
+                TasksView()
             case .notes:
                 NotesView()
             case .settings:
-                PlaceholderScreen(title: "Settings", subtitle: "Configure permissions and assistant behavior.")
+                SettingsView()
             case .weather:
                 PlaceholderScreen(title: "Weather", subtitle: "Check the weather and set reminders.")
             case .none:
