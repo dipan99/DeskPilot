@@ -61,6 +61,7 @@ struct DashboardView: View {
             }
             .padding(32)
         }
+        .accessibilityIdentifier("dashboardScrollView")
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .task {
             await loadDashboardIfNeeded()
