@@ -45,10 +45,10 @@ Important app areas:
 
 Detailed project docs live one level above this Xcode project directory:
 
-- Backend setup: [`../backend_setup.md`](../backend_setup.md)
-- Development architecture: [`../DEV_ARCHITECTURE.md`](../DEV_ARCHITECTURE.md)
-- Test architecture: [`../TEST_ARCHITECTURE.md`](../TEST_ARCHITECTURE.md)
-- Current progress notes: [`../PROGRESS.md`](../PROGRESS.md)
+- Backend setup: [`../backend_setup.md`](backend_setup.md)
+- Development architecture: [`../DEV_ARCHITECTURE.md`](DEV_ARCHITECTURE.md)
+- Test architecture: [`../TEST_ARCHITECTURE.md`](TEST_ARCHITECTURE.md)
+- Current progress notes: [`../PROGRESS.md`](PROGRESS.md)
 
 Use this README as the short entry point. Use the linked docs when you need implementation details, setup instructions, testing strategy, or project status.
 
