@@ -36,6 +36,10 @@ struct AppShellView: View {
     @State private var assistantUserMessage = ""
     @State private var assistantMessages: [ChatBubbleMessage] = []
     @State private var assistantIsLoading = false
+    @State private var dashboardSnapshot = DashboardSnapshot.empty
+    @State private var dashboardSummary = "Loading your recent activity..."
+    @State private var dashboardIsLoading = false
+    @State private var dashboardHasLoaded = false
 
     var body: some View {
         NavigationSplitView {
@@ -49,9 +53,15 @@ struct AppShellView: View {
         } detail: {
             switch selectedSection {
             case .dashboard:
-                DashboardView { section in
-                    selectedSection = section
-                }
+                DashboardView(
+                    openSection: { section in
+                        selectedSection = section
+                    },
+                    snapshot: $dashboardSnapshot,
+                    summary: $dashboardSummary,
+                    isLoading: $dashboardIsLoading,
+                    hasLoaded: $dashboardHasLoaded
+                )
             case .assistant:
                 AssistantView(
                     userMessage: $assistantUserMessage,

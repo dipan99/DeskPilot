@@ -10,9 +10,10 @@ import SwiftUI
 struct DashboardView: View {
     let openSection: (DeskPilotSection) -> Void
 
-    @State private var snapshot = DashboardSnapshot.empty
-    @State private var summary = "Loading your recent activity..."
-    @State private var isLoading = true
+    @Binding var snapshot: DashboardSnapshot
+    @Binding var summary: String
+    @Binding var isLoading: Bool
+    @Binding var hasLoaded: Bool
 
     private let loader = DashboardLoader()
     private let summarizer = DashboardSummarizer()
@@ -62,7 +63,7 @@ struct DashboardView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .task {
-            await loadDashboard()
+            await loadDashboardIfNeeded()
         }
     }
 
@@ -177,13 +178,27 @@ struct DashboardView: View {
     }
 
     @MainActor
+    private func loadDashboardIfNeeded() async {
+        guard !hasLoaded else {
+            return
+        }
+
+        await loadDashboard()
+    }
+
+    @MainActor
     private func loadDashboard() async {
+        guard !isLoading else {
+            return
+        }
+
         isLoading = true
         summary = "Loading your recent activity..."
 
         let loadedSnapshot = await loader.loadSnapshot()
         snapshot = loadedSnapshot
         summary = await summarizer.summarize(snapshot: loadedSnapshot)
+        hasLoaded = true
         isLoading = false
     }
 }
@@ -211,7 +226,7 @@ private struct DashboardItemRow: View {
     }
 }
 
-private struct DashboardSnapshot {
+struct DashboardSnapshot {
     let notes: [DashboardItem]
     let events: [DashboardItem]
     let tasks: [DashboardItem]
@@ -260,7 +275,7 @@ private struct DashboardSnapshot {
     }
 }
 
-private struct DashboardItem: Identifiable, Hashable {
+struct DashboardItem: Identifiable, Hashable {
     let id: String
     let title: String
     let subtitle: String
@@ -485,5 +500,11 @@ private struct DashboardSummarizer {
 }
 
 #Preview {
-    DashboardView { _ in }
+    DashboardView(
+        openSection: { _ in },
+        snapshot: .constant(.empty),
+        summary: .constant("No recent activity found yet."),
+        isLoading: .constant(false),
+        hasLoaded: .constant(true)
+    )
 }
