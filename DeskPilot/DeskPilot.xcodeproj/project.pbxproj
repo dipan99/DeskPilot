@@ -27,6 +27,7 @@
 		DC31C0102FFAB2C200A02EEC /* DeskPilot.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DeskPilot.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DC31C01D2FFAB2C400A02EEC /* DeskPilotTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DeskPilotTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		DC31C0272FFAB2C400A02EEC /* DeskPilotUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DeskPilotUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		DC727B862FFCED8000FF3558 /* DeskPilot.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = file; path = DeskPilot.xctestplan; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -75,6 +76,7 @@
 		DC31C0072FFAB2C200A02EEC = {
 			isa = PBXGroup;
 			children = (
+				DC727B862FFCED8000FF3558 /* DeskPilot.xctestplan */,
 				DC31C0122FFAB2C200A02EEC /* DeskPilot */,
 				DC31C0202FFAB2C400A02EEC /* DeskPilotTests */,
 				DC31C02A2FFAB2C400A02EEC /* DeskPilotUITests */,

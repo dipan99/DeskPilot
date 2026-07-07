@@ -30,5 +30,4 @@ enum SidebarSection: String, CaseIterable {
     case tasks = "Tasks"
     case notes = "Notes"
     case settings = "Settings"
-    case weather = "Weather"
 }

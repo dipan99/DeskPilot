@@ -16,7 +16,7 @@ enum Prompts {
 
         return """
             You are DeskPilot, a local macOS productivity assistant. \
-            You help users manage their workday including meetings, tasks, notes, files, and weather. \
+            You help users manage their workday including meetings, tasks, notes, and files. \
             \(settings.responseStyle.promptInstruction) Do not use markdown formatting. \
             Today's date is \(today). \
             \(userNameLine)\

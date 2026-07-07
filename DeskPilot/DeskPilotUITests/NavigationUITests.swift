@@ -35,8 +35,7 @@ final class NavigationUITests: XCTestCase {
             (.calendar, app.staticTexts["Calendar_title"]),
             (.tasks, app.staticTexts["Tasks_title"]),
             (.notes, app.staticTexts["Notes_title"]),
-            (.settings, app.staticTexts["Settings_title"]),
-            (.weather, app.staticTexts["Weather_title"])
+            (.settings, app.staticTexts["Settings_title"])
         ]
 
         for expectation in expectations {

@@ -15,7 +15,6 @@ enum DeskPilotSection: String, CaseIterable, Identifiable, Hashable {
     case tasks = "Tasks"
     case notes = "Notes"
     case settings = "Settings"
-    case weather = "Weather"
 
     var id: String { rawValue }
 
@@ -28,7 +27,6 @@ enum DeskPilotSection: String, CaseIterable, Identifiable, Hashable {
         case .tasks: return "checklist"
         case .notes: return "note.text"
         case .settings: return "gear"
-        case .weather: return "sun.max"
         }
     }
 }
@@ -70,8 +68,6 @@ struct AppShellView: View {
                 NotesView()
             case .settings:
                 SettingsView()
-            case .weather:
-                PlaceholderScreen(title: "Weather", subtitle: "Check the weather and set reminders.")
             case .none:
                 PlaceholderScreen(title: "DeskPilot", subtitle: "Choose a section.")
             }
